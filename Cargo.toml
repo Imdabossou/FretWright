@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# vendored crates keep their own workspace settings
+exclude = ["third_party"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/Imdabossou/FretWright"
+rust-version = "1.89"
+
+[workspace.dependencies]
+thiserror = "2"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+aes = "0.8"
+cfb-mode = "0.8"
+ctr = "0.9"
+md-5 = "0.10"
+rayon = "1.10"
+byteorder = "1.5"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

@@ -1,0 +1,109 @@
+# Documentation
+
+Start with the [README](../README.md) for what the project is.
+
+## Three owners of written truth
+
+Each fact has exactly one home:
+
+- **Product norms — what must be true of the system:**
+  [`reference/standards.md`](reference/standards.md). It states each norm and
+  names the test that establishes it. The other reference documents hold the
+  design of one area each: [architecture](reference/architecture.md) (layers,
+  dependency direction, the encoding and decoding flows),
+  [domain model](reference/domain-model.md)
+  (the vocabulary), [profiles](reference/profiles.md) (profile data and its
+  provenance), [public interface](reference/public-interface.md) (exports, the
+  `encode` and `decode` APIs, the CLI), [decoding](reference/decoding.md) (the
+  decode design: lifecycle, refusal classes, output alignment, the streaming
+  property).
+- **How work is done here:** [`guides/development.md`](guides/development.md) —
+  the verification ladder, lanes and the shared checkout, commit discipline and
+  the code-writing standards. [`guides/usage.md`](guides/usage.md) holds the task
+  instructions: install, encode, call it from each language.
+- **Evidence and method:** [`findings/`](findings/) holds the evidence record for
+  a completed result, [`methodology/`](methodology/) the reusable method.
+
+The `AGENTS.md` set at the repository root and in each subtree holds the same
+working rules for an agent, plus where to start and what to register; it points
+at these documents instead of restating them.
+
+## The map
+
+| Document | Open it when |
+| --- | --- |
+| [`changelog.md`](changelog.md) | Reviewing user-visible changes for a release |
+| [`reference/standards.md`](reference/standards.md) | You need a product norm — bit-exactness, the decode contract, determinism, bit-pattern transport, layers, errors, panics, caller state, profile ownership, the integration topology, the portability floor — or the test that establishes it |
+| [`reference/architecture.md`](reference/architecture.md) | Changing a layer boundary or the encoding or decoding flow |
+| [`reference/domain-model.md`](reference/domain-model.md) | Naming anything: the vocabulary is normative |
+| [`reference/profiles.md`](reference/profiles.md) | Touching profile data, profile selection, or its provenance |
+| [`reference/public-interface.md`](reference/public-interface.md) | Touching package exports, the `encode` and `decode` APIs, or the CLI |
+| [`reference/decoding.md`](reference/decoding.md) | Touching the decoder: its lifecycle, what it refuses and with which class, its output length and alignment, the streaming property, or what establishes the decode claims |
+| [`guides/usage.md`](guides/usage.md) | Installing the package, encoding a file, decoding one, calling it from each language |
+| [`guides/development.md`](guides/development.md) | Building, running the tests, and the rules the work is held to |
+| [`guides/hooks.md`](guides/hooks.md) | Arming the local pre-commit layer, what it checks and why, and what deliberately stays in CI instead |
+| [`findings/2ch-byte-exactness.md`](findings/2ch-byte-exactness.md) | Needing the 2ch evidence, its root causes, its retractions, or its trust boundary |
+| [`findings/concurrency-curves.md`](findings/concurrency-curves.md) | Asking how many encodes this machine runs at once, whether the kernel's internal parallelism pays for itself, or how to size a worker pool (that page's later change: the feature is opt-in now, and the instrument is `crates/wem-core/tests/concurrency_worker.rs`) |
+| [`findings/duration-curves.md`](findings/duration-curves.md) | Asking how peak memory and encode time behave as the input grows from seconds to ten minutes, in both installed geometries and on both the one-shot and streaming paths |
+| [`findings/pool-sizing.md`](findings/pool-sizing.md) | Asking what the long-frame channel pool is sized to, why it is not the process-global pool, or what the parallel feature's CPU actually goes on (that page's later change: a caller can bound the size now) |
+| [`findings/internal-parallelism-practice.md`](findings/internal-parallelism-practice.md) | Asking what other libraries document about owning threads — rayon, BLAS and `threadpoolctl`, OpenMP, FFTW, the codec encoders, the Rust ecosystem and the platform limits — and which of it this repository matches or conflicts with |
+| [`findings/input-format-practice.md`](findings/input-format-practice.md) | Asking which input formats an encoder is expected to accept — what libx264, libvpx, libaom, LAME, libopus and Apple's converters document as their input, what Wwise's own authoring converter is handed, what the PCM containers standardise and what they leave open, and whether a byte-exact claim can survive a resampler |
+| [`findings/profile-as-code.md`](findings/profile-as-code.md) | Asking where the profile values live now, or what established that the move into the kernel is exact |
+| [`findings/evidence-audit.md`](findings/evidence-audit.md) | Input defects, live synthesis comparison and remaining external-evidence limits |
+| [`findings/browser-shell-toolchain-options.md`](findings/browser-shell-toolchain-options.md) | Asking whether the browser shell should stay Rust and what C, Zig or MoonBit would actually buy |
+| [`findings/encode-performance.md`](findings/encode-performance.md) | Needing the encode's measured stage split, its scaling in stream length, or the list of what is worth optimizing and what is not |
+| [`findings/decode-transform-feasibility.md`](findings/decode-transform-feasibility.md) | Asking whether a `decode` surface is bounded work, which chain segments already exist in the kernel, and why bit-exactness against libvorbis is not a shippable claim |
+| [`findings/decode-performance.md`](findings/decode-performance.md) | Needing the decode's measured stage split, how peak RSS behaves as the stream grows, or which state a live decode session retains |
+| [`findings/decode-concurrency-curves.md`](findings/decode-concurrency-curves.md) | Asking how many decodes this machine runs at once, where decode scaling stops, or what one concurrent decode costs in CPU and resident memory |
+| [`methodology/byte-exact-diagnosis.md`](methodology/byte-exact-diagnosis.md) | Chasing any byte difference against an external build |
+| [`roadmap.md`](roadmap.md) | Asking what is still open |
+| [`../PROVENANCE.md`](../PROVENANCE.md) | Asking how the implementation was derived, what it claims and what it does not, which artifact came from where, or what its relationship to Audiokinetic is |
+| [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | Asking which upstream source a part of the codec behaviour or a static table came from, under which licence, or what those notices do not cover |
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | Making a contribution: the rules it must satisfy, including what must never enter the tree |
+
+## How this tree is organized
+
+- **`reference/`** describes how the system *is*; a change here is a change to
+  what the code and the tests are expected to do. `standards.md` holds the
+  product norms, and the topical documents hold the design of one area.
+- **`guides/`** holds task instructions and the rules the work is held to. A
+  working rule lives in `development.md`, not in a reference document.
+- **`findings/`** holds evidence for a completed result: the observation behind
+  each root cause, the accounting that closes, the retractions, and the boundary
+  of what the corpus proves. A finding is history — it records what was diagnosed
+  at a point in time, and it links to reference material instead of restating it.
+- **`methodology/`** holds reusable method, written only after it has actually
+  decided a case.
+- **`figures/`** holds committed figures and the recorded samples behind them:
+  a generated image and the data it was rendered from, so a reader can check the
+  numbers and re-render the picture instead of trusting the picture. Each is
+  produced by a script under `scripts/` that is byte-stable, and the finding that
+  discusses it embeds it by relative link.
+
+## Conventions
+
+- One claim, one link. Numbers live in the finding or in profile data, not in
+  prose that can drift.
+- A rule has one home: product norms in `reference/standards.md`, working rules
+  in `guides/development.md` and the `AGENTS.md` set, area design in the topical
+  reference documents. Everywhere else points at it.
+- Relative links only, so the tree works from a checkout, a wheel, and a ZIP
+  import alike.
+- Anything a reader could act on goes in `guides/`; anything a reader could
+  verify goes in `findings/`; anything a reader is expected to follow goes in
+  `reference/` or `AGENTS.md`.
+- Removing a mechanism, target, asset or public item means updating or deleting
+  the documents that describe it in the same change and correcting this map;
+  the checklist is in
+  [`guides/development.md`](guides/development.md#adding-and-removing-files).
+- **A command or a path in a document is a live artifact: it must work today and
+  select what the text claims it selects.** A rename, a split or a new required
+  feature is not finished until every command that names the old target, module,
+  file or flag is re-pointed — and re-pointed at the *selection* the text
+  describes, so the counts recorded beside it stay true (a file that became
+  `mod reference_bytes` in `encoder.rs` is selected as
+  `cargo test -p wem-core --test encoder reference_bytes`, not left as the file
+  it used to be). Only the numbers a run produced are history. Where a selection
+  genuinely changed shape and no invocation reproduces its count, re-take the
+  number and say at the table that you did, rather than leaving a command that
+  fails or a count that no longer describes what runs.

@@ -1,0 +1,18 @@
+[package]
+name = "fw-detect"
+description = "Bass line detection for FretWright: pitch tracking (pYIN), onsets, beat tracking, note segmentation and fretting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+rayon.workspace = true
+realfft = "3"
+fw-project = { path = "../fw-project" }
+fw-audio = { path = "../fw-audio" }
+fw-models = { path = "../fw-models" }
+
+[lints]
+workspace = true

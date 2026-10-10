@@ -1,0 +1,55 @@
+name: web
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  web:
+    # Browser/Node shell: one test run over a freshly built package. wasm-pack
+    # compiles the threadless kernel to wasm32-unknown-unknown, builds both
+    # targets, and the Node test then compares the shell's bytes against the
+    # kernel reference, one-shot and across chunkings. The packages are build
+    # output — nothing wasm-pack writes is committed — so the run that builds
+    # them is the run that tests them, and the same packages travel on as a
+    # distribution artifact.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, wasm32-wasip1
+          components: clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # `wasm-pack/wasm-pack-action` no longer exists (404), which failed this
+      # job at "Set up job" on every push while the other two workflows ran.
+      # This is the same action at the same version, under its current owner.
+      - uses: jetli/wasm-pack-action@v0.4.0
+      - name: wasm32 check (threadless kernel + wasm shell)
+        run: cd crates && cargo check -p wem-wasm --target wasm32-unknown-unknown
+      - name: clippy (wasm target)
+        run: cd crates && cargo clippy -p wem-wasm --target wasm32-unknown-unknown -- -D warnings
+      - name: unit tests (native; error-code table)
+        run: cd crates && cargo test -p wem-wasm
+      - name: container length arithmetic (32-bit runtime)
+        run: cd crates && cargo test -p wem-container --lib --target wasm32-wasip1
+        env:
+          CARGO_TARGET_WASM32_WASIP1_RUNNER: node ${{ github.workspace }}/scripts/run_wasi_test.mjs
+      - name: "wasm packages (wasm-pack: js/pkg web, js/pkg-node nodejs)"
+        # Build and test in one run: this step builds both packages, and the
+        # next one runs js/test-node.mjs against the bytes it just built.
+        # wasm-pack resolves --out-dir against the crate directory rather than
+        # the current one, which is why the out-dirs are absolute
+        # (js/package.json).
+        run: make wasm-build
+      - name: wasm parity test (the shell's bytes against tests/fixtures/reference.wem)
+        run: node js/test-node.mjs
+      - name: publish the built wasm packages (distribution artifact, not a check)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wwise-wem-wasm-packages
+          path: |
+            js/pkg
+            js/pkg-node

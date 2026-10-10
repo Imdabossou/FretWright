@@ -1,0 +1,17 @@
+# build output
+target/
+/dist/
+# AI model weights (downloaded by the app, see docs/MODELS.md)
+/models/
+# keep songs, charts and builds out of the repository
+*.mp3
+*.flac
+*.ogg
+*.wav
+*.wem
+*.psarc
+/*.jpg
+/*.png
+* (FretWright)/
+# proprietary Wwise SDK: never commit it
+Wwise_*/

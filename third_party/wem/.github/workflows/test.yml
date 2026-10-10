@@ -1,0 +1,316 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  input-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: cargo install cargo-fuzz --locked --version 0.13.2
+      - run: python3 scripts/fuzz_inputs.py --seconds 30
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: input-fuzz-crashes
+          path: crates/fuzz/artifacts/
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # Type/lint tooling only. The package itself is NOT installed: its
+      # build backend is maturin, and pip-installing it would pull a Rust
+      # toolchain into a Python-only job.
+      - run: python -m pip install "ruff>=0.6" "mypy>=1.11"
+      - run: ruff check src reference tests scripts
+      - run: mypy src reference
+      - run: python3 scripts/check_documentation.py
+      - name: tracked tree (asset, development-tree and repository-root rules)
+        # The same three rules the pre-commit hook runs, over `git ls-files`
+        # rather than over the staged diff. A hook is local-only -- a checkout
+        # whose `core.hooksPath` was never armed (`make hooks`) and any `git
+        # commit --no-verify` reach this job with the tree unexamined -- and the
+        # rules guard published surfaces, so the whole tracked tree is asserted
+        # here. This job is the right place for it: no kernel, no build, no
+        # network.
+        run: python3 scripts/check_staged_assets.py --all-tracked
+
+  regression:
+    # Single execution path: the facade's byte-producing calls run on the
+    # in-package native extension (wwise_wem._core, built from the
+    # wem-python binding crate). Every cell builds that kernel and runs
+    # the full suite against it — no native-absent skips.
+    # The reference oracle (reference/) stays on PYTHONPATH as a test
+    # asset for the parity suites.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Windows parses PYTHONPATH with ';'; POSIX shells use ':'.
+      PYTHONPATH: ${{ matrix.os == 'windows-latest' && format('{0}/src;{0}/reference', github.workspace) || format('{0}/src:{0}/reference', github.workspace) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # The kernel is compiled Rust, and the compiler writes the absolute path
+      # of every file it reads -- registry sources, toolchain files -- into the
+      # binary it produces: left alone, the extension names the home directory
+      # of the account that built it. The rewrite has to expand that home, and
+      # a committed cargo config cannot (its strings do not expand a
+      # variable), so it is computed here and exported to the steps that
+      # follow. Cargo's encoded form, not RUSTFLAGS: it is separator-delimited,
+      # so a path containing a space survives, and the encoded form is what
+      # takes precedence over a RUSTFLAGS some other tool sets. Python is the
+      # shell because it reports the native home on every runner -- a bash
+      # `$HOME` is a POSIX view of a Windows path, which would remap nothing.
+      - name: neutral build paths (no builder home in the compiled extension)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import pathlib
+
+          home = str(pathlib.Path.home())
+          cargo_home = os.environ.get("CARGO_HOME") or str(pathlib.Path(home) / ".cargo")
+          remaps = [
+              f"--remap-path-prefix={home}=/build",
+              f"--remap-path-prefix={cargo_home}=/cargo",
+          ]
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write("CARGO_ENCODED_RUSTFLAGS=" + "\x1f".join(remaps) + "\n")
+          print("neutral build paths: " + " | ".join(remaps))
+          PY
+      # The dev extra's dependencies, without the package itself: the package
+      # imports from PYTHONPATH here, and pip-installing it would run a second
+      # maturin build. They are read out of pyproject.toml rather than repeated
+      # here, because the one dependency this job was missing — numpy, imported
+      # by scripts/decode_wem.py and the two-channel end-to-end suite — was
+      # missing precisely because the comment above said "dev extras" while the
+      # command installed only maturin. The kernel build goes through the
+      # maturin build step below.
+      - name: dev dependencies without the package (pyproject is the source)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "maturin>=1.7"
+          python - <<'PY' > "${RUNNER_TEMP}/dev-requirements.txt"
+          import pathlib
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              # Python 3.10, which this matrix includes: tomllib arrived in
+              # 3.11. pip vendors tomli for exactly this parse.
+              from pip._vendor import tomli as tomllib
+          project = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
+          print("\n".join(project["optional-dependencies"]["dev"]))
+          PY
+          cat "${RUNNER_TEMP}/dev-requirements.txt"
+          python -m pip install -r "${RUNNER_TEMP}/dev-requirements.txt"
+      - name: in-package native kernel (maturin build + drop extension into src)
+        shell: bash
+        run: |
+          set -euo pipefail
+          maturin build --release -o native-wheel
+          python - <<'PY'
+          import glob, pathlib, zipfile
+          wheel = sorted(glob.glob("native-wheel/*.whl"))[-1]
+          with zipfile.ZipFile(wheel) as z:
+              members = [
+                  n
+                  for n in z.namelist()
+                  if n.startswith("wwise_wem/_core.")
+                  and n.rsplit(".", 1)[-1] in ("so", "pyd", "dylib")
+              ]
+              assert members, f"no _core extension in {wheel}"
+              for m in members:
+                  target = pathlib.Path("src") / m
+                  target.write_bytes(z.read(m))
+                  print("installed", target)
+          PY
+        env:
+          CARGO_TERM_COLOR: always
+      - name: pytest discovery without a manual import path
+        run: python -m pytest --collect-only -q
+        env:
+          PYTHONPATH: ""
+      - name: full suite on the native kernel
+        run: python -m unittest discover -s tests -v
+      - name: native binding smoke (streaming + one-shot, byte-exact)
+        run: python scripts/native_smoke.py
+      - name: "wheel packaging (single wheel: facade + native; clean-venv encode)"
+        run: python scripts/wheel_smoke.py
+        # Clean-venv isolation is the point: an inherited PYTHONPATH would
+        # make the reference tree importable inside the "installed wheel"
+        # venv and break (or silently weaken) the structure check.
+        env:
+          PYTHONPATH: ""
+      - name: differential parity (reference + 10 cases, < 1 minute)
+        run: python scripts/fuzz_diff_parity.py --pr
+
+  rust:
+    # The kernel's own suites, as a Rust workspace. Every other job exercises
+    # the kernel only through one binding (maturin, cgo, wasm-pack), so
+    # without this job a crate that builds for one shell but not for the
+    # workspace — or a formatting/clippy regression in a crate no shell
+    # happens to build — reaches main unchallenged.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: formatting
+        run: cd crates && cargo fmt --all --check
+      - name: clippy (workspace, all targets, warnings denied)
+        run: cd crates && cargo clippy --workspace --all-targets -- -D warnings
+      - name: rustdoc (workspace, warnings denied)
+        # clippy does not read doc comments: a public item documented with a link
+        # to a private one compiles, lints and tests clean, and only rustdoc
+        # reports it. Deterministic, so unlike a timing it is a fair check.
+        run: cd crates && RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+      # One test in this workspace reaches into Python by design:
+      # `wem-container`'s container parity case drives the pure-Python oracle,
+      # and that oracle reads its profile values from the compiled carrier
+      # (`reference/wwise_wem_reference/profiles/artifact.py` ->
+      # `wwise_wem._core.profile_tables()`), so the extension has to exist
+      # before the suite runs. It is built the same way the regression job
+      # builds it. Without this the job fails on
+      # `ImportError: cannot import name '_core'` in a Rust test binary, which
+      # is a confusing way to learn that a Rust suite has a Python prerequisite.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install "maturin>=1.7" "numpy>=1.24"
+      - name: in-package native kernel (the oracle reads its tables from it)
+        shell: bash
+        run: |
+          set -euo pipefail
+          maturin build --release -o native-wheel
+          python - <<'PY'
+          import glob, pathlib, zipfile
+          wheel = sorted(glob.glob("native-wheel/*.whl"))[-1]
+          with zipfile.ZipFile(wheel) as z:
+              members = [
+                  n for n in z.namelist()
+                  if n.startswith("wwise_wem/_core.")
+                  and n.rsplit(".", 1)[-1] in ("so", "pyd", "dylib")
+              ]
+              assert members, f"no _core extension in {wheel}"
+              for m in members:
+                  target = pathlib.Path("src") / m
+                  target.write_bytes(z.read(m))
+                  print("installed", target)
+          PY
+      - name: workspace tests (unit, integration, doc)
+        run: cd crates && cargo test --workspace
+
+  capi:
+    # C ABI core surface (the single cross-language integration point):
+    # proves byte-exactness end-to-end — the Rust FFI tests (capi_surface)
+    # plus the Go cgo binding and the plain C client, each streaming the
+    # fixture through the C ABI and rebuilding the reference WEM.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cd crates && cargo build --release -p wem-capi
+      - run: cd crates && cargo test --release -p wem-capi
+      - name: Build + run the C client (byte-exact)
+        # include/wem.h is the interface the shells mirror, and this is the only
+        # consumer a C compiler reads it with: without this step the header
+        # could stop being C-consumable and nothing would notice.
+        run: |
+          set -euo pipefail
+          # The rpath is what lets the binary find libwem_capi.so at run time;
+          # `-L` alone only tells the linker where to look. Without it the
+          # loader fails with "cannot open shared object file" — which is how
+          # this step behaved on every platform until it was run.
+          cc -std=c11 -Wall -Wextra -Werror -Iinclude \
+            examples/c/encode_pcm16.c \
+            -Lcrates/target/release -lwem_capi -lpthread -ldl -lm \
+            -Wl,-rpath,"${PWD}/crates/target/release" \
+            -o "${RUNNER_TEMP}/wem-c-example"
+          "${RUNNER_TEMP}/wem-c-example" tests/fixtures/input.wav "${RUNNER_TEMP}/c-capi-out.wem"
+          # Byte comparison, not a digest: the committed reference WEM is the
+          # paired build's output for this input, and `cmp` reports the first
+          # differing byte.
+          if ! cmp -s tests/fixtures/reference.wem "${RUNNER_TEMP}/c-capi-out.wem"; then
+            echo "reference byte mismatch: the C client output differs from tests/fixtures/reference.wem"
+            echo "  expected (tests/fixtures/reference.wem): $(wc -c < tests/fixtures/reference.wem) bytes"
+            echo "  actual   (C client output)             : $(wc -c < "${RUNNER_TEMP}/c-capi-out.wem") bytes"
+            cmp tests/fixtures/reference.wem "${RUNNER_TEMP}/c-capi-out.wem" || true
+            exit 1
+          fi
+          echo "reference bytes OK: C client output == tests/fixtures/reference.wem"
+      - name: Build + run the C decode client
+        # Same reason as the encode step above, for the decode half of the
+        # header: `include/wem.h` section 5 declares wem_decoder_* and the two
+        # required callbacks, and this is the only place a C compiler reads it.
+        # The output is kept for the Go step to compare against.
+        run: |
+          set -euo pipefail
+          cc -std=c11 -Wall -Wextra -Werror -Iinclude \
+            examples/c/decode_wem.c \
+            -Lcrates/target/release -lwem_capi -lpthread -ldl -lm \
+            -Wl,-rpath,"${PWD}/crates/target/release" \
+            -o "${RUNNER_TEMP}/wem-c-decode"
+          "${RUNNER_TEMP}/wem-c-decode" \
+            tests/fixtures/reference.wem "${RUNNER_TEMP}/c-decode.f32"
+          echo "C decode OK: $(wc -c < "${RUNNER_TEMP}/c-decode.f32") bytes of raw f32"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Build + run the Go cgo reference binding (byte-exact)
+        run: |
+          set -euo pipefail
+          cd examples/go-cgo
+          go vet ./...
+          go build ./...
+          go run . -wav ../../tests/fixtures/input.wav -out "${RUNNER_TEMP}/go-capi-out.wem"
+          # Same byte comparison as the C step, against the same artifact.
+          if ! cmp -s ../../tests/fixtures/reference.wem "${RUNNER_TEMP}/go-capi-out.wem"; then
+            echo "reference byte mismatch: the Go binding output differs from tests/fixtures/reference.wem"
+            echo "  expected (tests/fixtures/reference.wem): $(wc -c < ../../tests/fixtures/reference.wem) bytes"
+            echo "  actual   (Go binding output)           : $(wc -c < "${RUNNER_TEMP}/go-capi-out.wem") bytes"
+            cmp ../../tests/fixtures/reference.wem "${RUNNER_TEMP}/go-capi-out.wem" || true
+            exit 1
+          fi
+          echo "reference bytes OK: Go binding output == tests/fixtures/reference.wem"
+      - name: Run the Go cgo decode binding against the C client's output
+        # A live comparison, not a recorded digest: the two bindings reach the
+        # same kernel through the same C ABI from different languages, so a
+        # binding that mistranslates a callback or mis-packs a sample shows up
+        # as a difference. Byte-exactness itself is established in-tree, where
+        # crates/wem-core/tests/decode_reference_wem.rs decodes
+        # tests/fixtures/reference.wem and compares it against the WAV it was
+        # produced from -- the decoder's whole claim is that round trip, and a
+        # 3.3 MB f32 reference committed here would only duplicate it.
+        run: |
+          set -euo pipefail
+          cd examples/go-cgo
+          go run ./decode \
+            -wem ../../tests/fixtures/reference.wem -out "${RUNNER_TEMP}/go-decode.f32"
+          if ! cmp -s "${RUNNER_TEMP}/c-decode.f32" "${RUNNER_TEMP}/go-decode.f32"; then
+            echo "decode mismatch: the Go binding's samples differ from the C client's"
+            echo "  C  (${RUNNER_TEMP}/c-decode.f32): $(wc -c < "${RUNNER_TEMP}/c-decode.f32") bytes"
+            echo "  Go (${RUNNER_TEMP}/go-decode.f32): $(wc -c < "${RUNNER_TEMP}/go-decode.f32") bytes"
+            exit 1
+          fi
+          echo "decode OK: Go and C clients agree byte for byte"

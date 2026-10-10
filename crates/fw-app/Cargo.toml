@@ -1,0 +1,30 @@
+[package]
+name = "fw-app"
+description = "FretWright desktop app: tab editor with playback, bass detection and Rocksmith 2014 package building"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "fretwright"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11", "persistence"] }
+cpal = "0.18"
+rfd = "0.17"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "ico"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+fw-project = { path = "../fw-project" }
+fw-detect = { path = "../fw-detect" }
+fw-audio = { path = "../fw-audio" }
+fw-models = { path = "../fw-models" }
+fw-package = { path = "../fw-package" }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[lints]
+workspace = true

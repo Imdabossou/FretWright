@@ -1,0 +1,16 @@
+[package]
+name = "fw-convert"
+description = "Convert Rocksmith 2014 arrangement XML into SNG"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+rayon.workspace = true
+fw-xml = { path = "../fw-xml" }
+fw-sng = { path = "../fw-sng" }
+
+[lints]
+workspace = true

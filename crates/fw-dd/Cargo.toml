@@ -1,0 +1,15 @@
+[package]
+name = "fw-dd"
+description = "Dynamic difficulty generation for Rocksmith 2014 arrangements"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+rayon.workspace = true
+fw-xml = { path = "../fw-xml" }
+
+[lints]
+workspace = true

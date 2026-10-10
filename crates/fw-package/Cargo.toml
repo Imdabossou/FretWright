@@ -1,0 +1,26 @@
+[package]
+name = "fw-package"
+description = "Assemble Rocksmith 2014 CDLC packages: manifests, sound banks, album art, show lights"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+rayon.workspace = true
+fw-xml = { path = "../fw-xml" }
+fw-sng = { path = "../fw-sng" }
+fw-psarc = { path = "../fw-psarc" }
+fw-convert = { path = "../fw-convert" }
+fw-improve = { path = "../fw-improve" }
+fw-dd = { path = "../fw-dd" }
+serde_json = { version = "1", features = ["preserve_order"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif"] }
+texpresso = "2"
+ab_glyph = "0.2"
+# Ubuntu Light (Ubuntu Font Licence) for placeholder album art
+epaint_default_fonts = "0.36"
+
+[lints]
+workspace = true

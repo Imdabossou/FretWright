@@ -1,0 +1,19 @@
+[package]
+name = "fw-project"
+description = "FretWright project model: on-disk format, chart -> arrangement, project -> package"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+fw-xml = { path = "../fw-xml" }
+fw-audio = { path = "../fw-audio" }
+fw-package = { path = "../fw-package" }
+fw-psarc = { path = "../fw-psarc" }
+
+[lints]
+workspace = true

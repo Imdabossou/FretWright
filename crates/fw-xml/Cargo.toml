@@ -1,0 +1,15 @@
+[package]
+name = "fw-xml"
+description = "Rocksmith 2014 arrangement XML (Toolkit / EOF / DLC Builder format)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+bitflags = "2"
+quick-xml = "0.38"
+
+[lints]
+workspace = true
