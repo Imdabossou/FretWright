@@ -124,9 +124,12 @@ pub fn superflux_strength(y: &[f64], sr: f64, n_fft: usize, hop: usize, lag: usi
 /// Onset times (seconds) of a bass stem: [`superflux_strength`] peak-picked
 /// against a local average. Finds re-picked repeats of one note that the
 /// librosa-style detector above misses.
-pub fn bass_onsets(y: &[f64], sr: f64) -> Vec<f64> {
+/// Onset candidates `(time, margin)`: peaks of [`superflux_strength`] that rise
+/// at least `delta_low` above their surroundings. `margin` is how far they rise,
+/// scaled by the song's 99th-percentile level. Candidates closer than 60 ms keep
+/// only the stronger one.
+pub fn bass_onset_candidates(y: &[f64], sr: f64, delta_low: f64) -> Vec<(f64, f64)> {
     const HOP: usize = 128;
-    let delta: f64 = std::env::var("FW_DELTA").ok().and_then(|v| v.parse().ok()).unwrap_or(0.11);
     let env = superflux_strength(y, sr, 1024, HOP, 4);
     // scaled by the 99th percentile, not the maximum: one huge hit must not set the bar for the whole song
     let mut sorted = env.clone();
@@ -138,19 +141,30 @@ pub fn bass_onsets(y: &[f64], sr: f64) -> Vec<f64> {
     let x: Vec<f64> = env.iter().map(|v| v / scale).collect();
     let frame_s = HOP as f64 / sr;
     let fr = |s: f64| ((s / frame_s).round() as usize).max(1);
-    let (win, avg, wait) = (fr(0.03), fr(0.10), fr(0.06));
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < x.len() {
+    let (win, avg) = (fr(0.03), fr(0.10));
+    let mut out: Vec<(f64, f64)> = Vec::new();
+    for i in 0..x.len() {
         let (a, b) = (i.saturating_sub(win), (i + win + 1).min(x.len()));
         let (a2, b2) = (i.saturating_sub(avg), (i + avg + 1).min(x.len()));
         let mean = x[a2..b2].iter().sum::<f64>() / (b2 - a2) as f64;
-        if x[a..b].iter().all(|&v| v <= x[i]) && x[i] > mean + delta {
-            out.push(i as f64 * frame_s);
-            i += wait;
-        } else {
-            i += 1;
+        let margin = x[i] - mean;
+        if margin > delta_low && x[a..b].iter().all(|&v| v <= x[i]) {
+            let t = i as f64 * frame_s;
+            match out.last_mut() {
+                Some(last) if t - last.0 < 0.06 => {
+                    if margin > last.1 {
+                        *last = (t, margin);
+                    }
+                }
+                _ => out.push((t, margin)),
+            }
         }
     }
     out
+}
+
+/// Onset times (seconds) of a bass stem: the candidates that rise clearly.
+pub fn bass_onsets(y: &[f64], sr: f64) -> Vec<f64> {
+    let delta: f64 = std::env::var("FW_DELTA").ok().and_then(|v| v.parse().ok()).unwrap_or(0.11);
+    bass_onset_candidates(y, sr, delta).into_iter().map(|c| c.0).collect()
 }

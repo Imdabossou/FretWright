@@ -6,6 +6,7 @@ pub mod fretting;
 pub mod metrics;
 pub mod notes;
 pub mod onset;
+pub mod onset_model;
 pub mod pipeline;
 pub mod pitch;
 pub mod pyin;

@@ -67,6 +67,37 @@ pub fn track_beats(mix: &[f64], tracker: &str, duration: f64, warnings: &mut Vec
     beats::regularize(&beat_times, &[], duration, 4)
 }
 
+/// The beat grid of `mix`, reused from `cache_dir` when it was tracked before
+/// (beat tracking is slow and does not change between runs on the same song).
+fn cached_beats(mix: &[f64], tracker: &str, duration: f64, cache_dir: &Path, warnings: &mut Vec<String>, progress: Progress) -> BeatGrid {
+    if tracker == "none" {
+        return BeatGrid::default();
+    }
+    let path = cache_dir.join(format!("beats-{tracker}.cache"));
+    let key = format!("{} {}", mix.len(), tracker);
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        let mut lines = text.lines();
+        if lines.next() == Some(key.as_str()) {
+            let tempo: f64 = lines.next().and_then(|l| l.parse().ok()).unwrap_or(120.0);
+            let beats: Vec<f64> = lines.next().unwrap_or("").split_whitespace().filter_map(|v| v.parse().ok()).collect();
+            let downbeats: Vec<usize> = lines.next().unwrap_or("").split_whitespace().filter_map(|v| v.parse().ok()).collect();
+            if !beats.is_empty() {
+                return BeatGrid { beats, downbeats, tempo };
+            }
+        }
+    }
+    let grid = track_beats(mix, tracker, duration, warnings, progress);
+    let join = |v: Vec<String>| v.join(" ");
+    let text = format!(
+        "{key}\n{}\n{}\n{}\n",
+        grid.tempo,
+        join(grid.beats.iter().map(|b| format!("{b:.5}")).collect()),
+        join(grid.downbeats.iter().map(|d| d.to_string()).collect())
+    );
+    let _ = std::fs::write(&path, text);
+    grid
+}
+
 /// Runs a Demucs model on the song and caches its bass stem in the project
 /// (16-bit stereo WAV at 44.1 kHz, see [`stem_path`]).
 pub fn separate(audio: &Path, model: &str, device: &str, cache_dir: &Path, warnings: &mut Vec<String>, progress: Progress) -> Result<(), Error> {
@@ -107,7 +138,7 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
     let duration = mix.len() as f64 / SR;
 
     progress("Tracking beats", 0.10);
-    let grid = track_beats(&mix, &settings.beats, duration, &mut warnings, progress);
+    let grid = cached_beats(&mix, &settings.beats, duration, cache_dir, &mut warnings, progress);
 
     progress("Isolating bass", 0.25);
     let bass = if settings.separator == "lowpass" {
@@ -146,15 +177,25 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
         found
     } else {
         progress("Finding notes", 0.40);
-        let onsets = onset::bass_onsets(&bass, SR);
+        let strong = lab("DELTA", 0.11);
+        let weak = lab("WEAK", 0.04);
+        let candidates = onset::bass_onset_candidates(&bass, SR, weak.min(strong));
         let cfg = notes::SalienceSegmentation {
+            strong_margin: strong,
+            weak_margin: weak,
+            change_window_s: lab("CHANGEWIN", 0.12),
+            change_confidence: lab("CHANGECONF", 2.0),
+            grid_tol_s: lab("GRIDTOL", 0.03),
+            pitch_change: lab("PITCHCHG", 0.0) > 0.0,
+            accent_ratio: lab("ACCENT", 0.0),
             min_note_s: settings.min_note_ms / 1000.0,
             attack_s: lab("ATTACK", 0.0),
             tail_s: lab("TAIL", 0.01),
             min_confidence: lab("MINCONF", 2.0),
             gate_db: lab("GATE", -40.0),
         };
-        let (found, tuning) = notes::segment_by_salience(&bass, SR, &onsets, open[0] - 1, open[3] + MAX_FRET + 1, &cfg);
+        let subs = notes::subdivisions(&grid, 4);
+        let (found, tuning) = notes::segment_by_salience(&bass, SR, &candidates, &subs, open[0] - 1, open[3] + MAX_FRET + 1, &cfg);
         if tuning.abs() > 0.15 {
             warnings.push(format!("the recording is {:+.0} cents from A=440; notes were corrected for it", tuning * 100.0));
         }
