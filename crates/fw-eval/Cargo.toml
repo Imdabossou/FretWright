@@ -1,0 +1,17 @@
+[package]
+name = "fw-eval"
+description = "Scores FretWright's detected bass line against an official Rocksmith chart"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+fw-xml = { path = "../fw-xml" }
+fw-project = { path = "../fw-project" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+fw-detect = { path = "../fw-detect" }

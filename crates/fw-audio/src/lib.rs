@@ -235,6 +235,71 @@ pub fn volume(audio: &Audio) -> f32 {
     }
 }
 
+/// Decodes a Wwise Vorbis `.wem` (the audio inside a Rocksmith package).
+///
+/// The built-in decoder knows stereo at 48 kHz and six channels at 44.1 kHz.
+/// Other files (many official songs are stereo at 44.1 kHz) are handed to
+/// `vgmstream-cli` when it is installed.
+pub fn decode_wem(bytes: &[u8]) -> Result<Audio> {
+    match decode_wem_builtin(bytes) {
+        Ok(a) => Ok(a),
+        Err(first) => decode_wem_vgmstream(bytes).map_err(|second| match second {
+            Some(m) => Error::Wem(format!("{first}; vgmstream also failed: {m}")),
+            None => Error::Wem(format!("{first} (install vgmstream-cli to read these)")),
+        }),
+    }
+}
+
+/// `Err(None)`: vgmstream-cli is not installed.
+fn decode_wem_vgmstream(bytes: &[u8]) -> std::result::Result<Audio, Option<String>> {
+    let dir = std::env::temp_dir().join(format!("fretwright-wem-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| Some(e.to_string()))?;
+    let (wem, wav) = (dir.join("in.wem"), dir.join("out.wav"));
+    let run = || -> std::result::Result<Audio, Option<String>> {
+        std::fs::write(&wem, bytes).map_err(|e| Some(e.to_string()))?;
+        let out = std::process::Command::new("vgmstream-cli").arg("-o").arg(&wav).arg(&wem).output().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound { None } else { Some(e.to_string()) }
+        })?;
+        if !out.status.success() {
+            return Err(Some(String::from_utf8_lossy(&out.stderr).trim().to_string()));
+        }
+        decode(&wav).map_err(|e| Some(e.to_string()))
+    };
+    let result = run();
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+fn decode_wem_builtin(bytes: &[u8]) -> Result<Audio> {
+    use wem_core::decoder::DecodeSession;
+    const PUSH: usize = 8192;
+    let mut session = DecodeSession::new();
+    let (mut rate, mut channels): (u32, Vec<Vec<f32>>) = (0, Vec::new());
+    let mut absorb = |step: wem_core::decoder::DecodeStep| -> Result<()> {
+        if let Some(h) = &step.header {
+            rate = h.sample_rate;
+            channels = vec![Vec::with_capacity(h.total_frames as usize); h.channels as usize];
+        }
+        let n = step.channels as usize;
+        if n > 0 && n == channels.len() {
+            for frame in step.pcm.chunks_exact(n) {
+                for (c, &v) in channels.iter_mut().zip(frame) {
+                    c.push(v);
+                }
+            }
+        }
+        step.outcome.map_err(|e| Error::Wem(e.to_string()))
+    };
+    for chunk in bytes.chunks(PUSH) {
+        absorb(session.push_bytes(chunk))?;
+    }
+    absorb(session.finish())?;
+    if channels.is_empty() || rate == 0 {
+        return Err(Error::Wem("the .wem holds no audio".into()));
+    }
+    Ok(Audio { sample_rate: rate, channels })
+}
+
 /// Encodes 48 kHz stereo audio as a Rocksmith-compatible Wwise Vorbis `.wem`.
 pub fn encode_wem(audio: &Audio) -> Result<Vec<u8>> {
     if audio.sample_rate != 48_000 || audio.channels.len() != 2 {

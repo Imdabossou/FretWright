@@ -3,6 +3,8 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+mod bench;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
@@ -85,6 +87,78 @@ enum Cmd {
         /// MIDI notes of the open strings, low to high
         #[arg(long, value_delimiter = ',', default_value = "28,33,38,43")]
         open: Vec<i32>,
+    },
+    /// Make a project from an official chart: a .psarc (its bass arrangement and
+    /// song audio are extracted), or an arrangement .xml with --audio
+    Import {
+        chart: PathBuf,
+        /// The song audio, needed with a bare .xml
+        #[arg(long)]
+        audio: Option<PathBuf>,
+        /// Project folder (default: next to the chart)
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Score the detector on every official .psarc in a folder (each against its
+    /// own chart) and print one table, with the change since the last run
+    Bench {
+        /// Folder of .psarc files
+        songs: PathBuf,
+        /// Where imported songs, stems and results are kept (reused between runs)
+        #[arg(long)]
+        work: PathBuf,
+        /// Only songs whose name contains this
+        #[arg(long)]
+        only: Option<String>,
+        /// Onset tolerance in milliseconds
+        #[arg(long, default_value_t = 70.0)]
+        tol_ms: f64,
+        #[arg(long, default_value = "htdemucs_ft")]
+        separator: String,
+        #[arg(long, default_value_t = 60.0)]
+        min_note_ms: f64,
+        #[arg(long, default_value_t = 4)]
+        snap: u32,
+        /// auto, cpu or gpu
+        #[arg(long, default_value = "auto")]
+        device: String,
+        /// "none" skips beat tracking (the score does not use the grid); "beat_this" runs it
+        #[arg(long, default_value = "none")]
+        beats: String,
+        /// "harmonic" (default) or "pyin"
+        #[arg(long, default_value = "harmonic")]
+        pitch: String,
+    },
+    /// Score the detector against an official chart: detects the bass line of
+    /// `audio` and compares it with the top-difficulty notes of `chart` (a
+    /// Rocksmith arrangement XML), listing why notes were missed
+    Score {
+        audio: PathBuf,
+        chart: PathBuf,
+        /// Folder holding the stem cache (stems/<model>/bass.wav)
+        #[arg(long)]
+        cache_dir: PathBuf,
+        /// Score notes saved earlier with --save-notes instead of detecting again
+        #[arg(long)]
+        notes: Option<PathBuf>,
+        /// Save the detected notes (JSON) to reuse with --notes
+        #[arg(long)]
+        save_notes: Option<PathBuf>,
+        /// Write the full report (every miss and extra note) as JSON
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// Onset tolerance in milliseconds
+        #[arg(long, default_value_t = 70.0)]
+        tol_ms: f64,
+        #[arg(long, default_value = "htdemucs_ft")]
+        separator: String,
+        #[arg(long, default_value_t = 60.0)]
+        min_note_ms: f64,
+        #[arg(long, default_value_t = 4)]
+        snap: u32,
+        /// auto, cpu or gpu
+        #[arg(long, default_value = "auto")]
+        device: String,
     },
     /// List the neural network model files and where they were found;
     /// `models download` fetches the missing ones (verified by SHA-256)
@@ -209,8 +283,138 @@ fn main() -> Result<()> {
             let settings = fw_project::DetectionSettings { separator, pitch, beats, min_note_ms, snap_division: snap, device };
             detect_audio(&audio, &settings, &open, &cache_dir)
         }
+        Cmd::Bench { songs, work, only, tol_ms, separator, min_note_ms, snap, device, beats, pitch } => {
+            let settings = fw_project::DetectionSettings { separator, pitch, beats, min_note_ms, snap_division: snap, device };
+            bench::bench(&songs, &work, only.as_deref(), tol_ms / 1000.0, &settings)
+        }
+        Cmd::Import { chart, audio, out } => {
+            let folder = out.unwrap_or_else(|| fw_project::default_folder(&chart));
+            let p = match (chart.extension().and_then(|e| e.to_str()), audio) {
+                (Some("psarc"), _) => fw_project::import::import_psarc(&chart, &folder)?,
+                (_, Some(a)) => fw_project::import::import_xml(&chart, &a, &folder)?,
+                _ => anyhow::bail!("an arrangement .xml needs --audio <song>"),
+            };
+            p.save()?;
+            let count = |f: &dyn Fn(&fw_project::Note) -> bool| p.notes.iter().filter(|n| f(n)).count();
+            println!("{} - {}: {} notes, {:.0} s, tuning {:?}", p.metadata.artist, p.metadata.title, p.notes.len(), p.duration, p.tuning);
+            println!(
+                "hammer-ons {}, pull-offs {}, slides {}, slide-outs {}, bends {}, harmonics {}, palm mutes {}, links {}",
+                count(&|n| n.hammer_on),
+                count(&|n| n.pull_off),
+                count(&|n| n.slide_to >= 0),
+                count(&|n| n.slide_unpitch_to >= 0),
+                count(&|n| n.bend > 0.0),
+                count(&|n| n.harmonic),
+                count(&|n| n.palm_mute),
+                count(&|n| n.link_next)
+            );
+            println!("project: {}", folder.display());
+            Ok(())
+        }
+        Cmd::Score { audio, chart, cache_dir, notes, save_notes, report, tol_ms, separator, min_note_ms, snap, device } => {
+            let settings = fw_project::DetectionSettings { separator, pitch: "pyin".into(), beats: "beat_this".into(), min_note_ms, snap_division: snap, device };
+            score(&audio, &chart, &cache_dir, &settings, notes.as_deref(), save_notes.as_deref(), report.as_deref(), tol_ms / 1000.0)
+        }
         Cmd::Audio(cmd) => audio(cmd),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn score(
+    audio: &std::path::Path,
+    chart: &std::path::Path,
+    cache_dir: &std::path::Path,
+    settings: &fw_project::DetectionSettings,
+    notes_in: Option<&std::path::Path>,
+    save_notes: Option<&std::path::Path>,
+    report: Option<&std::path::Path>,
+    tol: f64,
+) -> Result<()> {
+    let arr = fw_xml::InstrumentalArrangement::load(chart).with_context(|| format!("reading {}", chart.display()))?;
+    let reference = fw_eval::reference_notes(&arr);
+    let open: [i32; 4] = std::array::from_fn(|s| [28, 33, 38, 43][s] + arr.metadata.tuning[s] as i32);
+    eprintln!("chart: {} notes, open strings {open:?}", reference.len());
+
+    let detected: Vec<fw_project::Note> = match notes_in {
+        Some(p) => serde_json::from_str(&std::fs::read_to_string(p)?).with_context(|| format!("reading {}", p.display()))?,
+        None => {
+            let progress = |msg: &str, f: f64| eprintln!("[{:5.1}%] {msg}", f * 100.0);
+            let det = fw_detect::pipeline::detect(audio, settings, &open, cache_dir, &progress)?;
+            for w in &det.warnings {
+                eprintln!("note: {w}");
+            }
+            det.notes
+        }
+    };
+    if let Some(p) = save_notes {
+        std::fs::write(p, serde_json::to_string(&detected)?)?;
+    }
+
+    let stem_file = fw_detect::pipeline::stem_path(cache_dir, &settings.separator);
+    let stem = stem_file.is_file().then(|| fw_detect::pipeline::load_mono(&stem_file)).transpose()?;
+    let offset = fw_eval::estimate_offset(&reference, &detected, 0.5, tol);
+    let s = fw_eval::score(&reference, &detected, tol, offset, stem.as_deref().map(|x| (x, fw_detect::pipeline::SR)));
+
+    println!("chart notes      {:6}", s.reference);
+    println!("detected notes   {:6}", s.detected);
+    println!("matched          {:6}   recall {:5.1}%   precision {:5.1}%   F1 {:5.1}%", s.matched, s.recall() * 100.0, s.precision() * 100.0, s.f1() * 100.0);
+    println!("timing           median {:+.0} ms after removing a constant lag of {:+.0} ms", s.median_onset_error() * 1000.0, s.offset * 1000.0);
+    println!("string/fret      {:5.1}% of matched notes agree with the chart", s.fretting_agrees as f64 / s.matched.max(1) as f64 * 100.0);
+    println!("\nwhy chart notes were missed ({}):", s.missed.len());
+    for (cause, n) in s.miss_counts() {
+        let levels: Vec<f64> = s.missed.iter().filter(|m| m.cause == cause).filter_map(|m| m.level_db).collect();
+        let median = (!levels.is_empty()).then(|| {
+            let mut l = levels;
+            l.sort_by(|a, b| a.total_cmp(b));
+            l[l.len() / 2]
+        });
+        println!("  {:5}  {}{}", n, cause.label(), median.map_or(String::new(), |m| format!("   (median level {m:.0} dB)")));
+    }
+    println!("extra detected notes with no chart note: {}", s.extra.len());
+
+    if !s.techniques.is_empty() {
+        println!("\ntechniques (on notes found with the right pitch):");
+        println!("  {:16} {:>6} {:>6} {:>6}   {:>6} {:>9}", "", "chart", "found", "false", "recall", "precision");
+        for (name, t) in &s.techniques {
+            let pct = |a: usize, b: usize| if b == 0 { "   -".to_string() } else { format!("{:4.0}%", a as f64 / b as f64 * 100.0) };
+            println!("  {name:16} {:6} {:6} {:6}   {:>6} {:>9}", t.chart(), t.hit, t.false_alarm, pct(t.hit, t.chart()), pct(t.hit, t.hit + t.false_alarm));
+        }
+    }
+
+    println!("\nrecall by pitch (MIDI, notes with at least 10 chart notes):");
+    for (midi, (hit, n)) in fw_eval::recall_by(&reference, &s.found, |_, r| r.midi) {
+        if n >= 10 {
+            println!("  {midi:3}  {hit:4}/{n:<4} {:5.1}%", hit as f64 / n as f64 * 100.0);
+        }
+    }
+    println!("recall by time since the previous chart note:");
+    let gap_bucket = |i: usize, r: &fw_eval::RefNote| {
+        let g = if i == 0 { 9.9 } else { r.start - reference[i - 1].start };
+        match g {
+            g if g < 0.12 => 0,
+            g if g < 0.20 => 1,
+            g if g < 0.30 => 2,
+            g if g < 0.50 => 3,
+            _ => 4,
+        }
+    };
+    for (b, (hit, n)) in fw_eval::recall_by(&reference, &s.found, gap_bucket) {
+        let name = ["< 120 ms", "120-200 ms", "200-300 ms", "300-500 ms", ">= 500 ms"][b];
+        println!("  {name:11} {hit:4}/{n:<4} {:5.1}%", hit as f64 / n.max(1) as f64 * 100.0);
+    }
+
+    if let Some(p) = report {
+        let note = |n: &fw_eval::RefNote| serde_json::json!({"t": n.start, "end": n.end, "midi": n.midi, "string": n.string, "fret": n.fret});
+        let json = serde_json::json!({
+            "reference": s.reference, "detected": s.detected, "matched": s.matched, "offset": s.offset,
+            "recall": s.recall(), "precision": s.precision(),
+            "chart": reference.iter().zip(&s.found).map(|(n, f)| { let mut v = note(n); v["found"] = (*f).into(); v }).collect::<Vec<_>>(),
+            "missed": s.missed.iter().map(|m| { let mut v = note(&m.note); v["cause"] = m.cause.label().into(); v["level_db"] = m.level_db.into(); v }).collect::<Vec<_>>(),
+            "extra": s.extra.iter().map(|n| serde_json::json!({"t": n.start, "end": n.end, "midi": n.midi})).collect::<Vec<_>>(),
+        });
+        std::fs::write(p, serde_json::to_string_pretty(&json)?)?;
+    }
+    Ok(())
 }
 
 fn detect(project: &std::path::Path, separator: Option<String>, snap: Option<u32>) -> Result<()> {

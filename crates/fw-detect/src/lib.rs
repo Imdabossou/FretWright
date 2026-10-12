@@ -7,4 +7,5 @@ pub mod metrics;
 pub mod notes;
 pub mod onset;
 pub mod pipeline;
+pub mod pitch;
 pub mod pyin;

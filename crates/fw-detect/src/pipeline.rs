@@ -45,6 +45,9 @@ pub fn load_mono(path: &Path) -> Result<Vec<f64>, Error> {
 /// tracker, which also finds bar lines) falls back to the classic tracker
 /// with a warning when its model file is missing.
 pub fn track_beats(mix: &[f64], tracker: &str, duration: f64, warnings: &mut Vec<String>, progress: Progress) -> BeatGrid {
+    if tracker == "none" {
+        return BeatGrid::default();
+    }
     if tracker != "librosa" {
         if tracker != "beat_this" {
             warnings.push(format!("unknown beat tracker '{tracker}'; used Beat This!"));
@@ -119,20 +122,44 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
         if stem.is_file() { load_mono(&stem)? } else { dsp::sosfiltfilt(&dsp::butter_lowpass_sos(4, 300.0, SR), &mix) }
     };
 
-    progress("Tracking pitch (pYIN)", 0.40);
-    if settings.pitch != "pyin" {
-        warnings.push(format!("pitch tracker '{}' needs the neural models (next phase); used pYIN", settings.pitch));
-    }
-    let fmin = midi_to_hz((open[0] - 2) as f64);
-    let fmax = midi_to_hz((open[3] + MAX_FRET + 2) as f64);
-    let p = pyin::pyin(&bass, SR, fmin, fmax, 4096, HOP);
+    let mut found = if settings.pitch == "pyin" {
+        progress("Tracking pitch (pYIN)", 0.40);
+        let fmin = midi_to_hz((open[0] - 2) as f64);
+        let fmax = midi_to_hz((open[3] + MAX_FRET + 2) as f64);
+        let p = cached_pyin(&bass, fmin, fmax, &pitch_cache_path(cache_dir, &settings.separator));
 
-    progress("Segmenting notes", 0.85);
-    let rms = dsp::rms(&bass, 2048, HOP);
-    let onsets = onset::onset_detect(&bass, SR, HOP);
-    let mut found = notes::segment(&p.f0, &p.voiced_prob, &rms, &onsets, HOP as f64 / SR, settings.min_note_ms);
-    notes::fix_octave_blips(&mut found, 0.15);
-    let mut found = notes::clean_blips(found, 0.12, 0.06);
+        progress("Segmenting notes", 0.85);
+        let rms = dsp::rms(&bass, 2048, HOP);
+        let frame_t = HOP as f64 / SR;
+        let onsets: Vec<usize> = onset::bass_onsets(&bass, SR).iter().map(|t| (t / frame_t).round() as usize).collect();
+        let tuning = notes::tuning_offset(&p.f0, &p.voiced_prob);
+        if tuning.abs() > 0.15 {
+            warnings.push(format!("the recording is {:+.0} cents from A=440; notes were corrected for it", tuning * 100.0));
+        }
+        let mut found = notes::segment_at_onsets(
+            &p.f0,
+            &rms,
+            &onsets,
+            &notes::OnsetSegmentation { frame_t, tuning, min_note_ms: settings.min_note_ms, attack_ms: 100.0, near_ms: 100.0 },
+        );
+        notes::fix_octave_blips(&mut found, 0.15);
+        found
+    } else {
+        progress("Finding notes", 0.40);
+        let onsets = onset::bass_onsets(&bass, SR);
+        let cfg = notes::SalienceSegmentation {
+            min_note_s: settings.min_note_ms / 1000.0,
+            attack_s: lab("ATTACK", 0.0),
+            tail_s: lab("TAIL", 0.01),
+            min_confidence: lab("MINCONF", 2.0),
+            gate_db: lab("GATE", -40.0),
+        };
+        let (found, tuning) = notes::segment_by_salience(&bass, SR, &onsets, open[0] - 1, open[3] + MAX_FRET + 1, &cfg);
+        if tuning.abs() > 0.15 {
+            warnings.push(format!("the recording is {:+.0} cents from A=440; notes were corrected for it", tuning * 100.0));
+        }
+        found
+    };
     notes::snap_to_grid(&mut found, &grid, settings.snap_division, 0.04);
     notes::fit_to_range(&mut found, open);
 
@@ -140,6 +167,54 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
     fretting::assign(&mut found, open, &Default::default());
     progress("Done", 1.0);
     Ok(Detection { notes: found, grid, duration, warnings })
+}
+
+/// Experiment knob: `FW_<name>` in the environment overrides `default`.
+fn lab(name: &str, default: f64) -> f64 {
+    std::env::var(format!("FW_{name}")).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Where the pitch track of a stem is cached next to the stem.
+pub fn pitch_cache_path(cache_dir: &Path, separator: &str) -> PathBuf {
+    cache_dir.join("stems").join(separator).join("pyin.cache")
+}
+
+/// A cheap fingerprint of the signal and the tracker's settings.
+fn pyin_key(y: &[f64], fmin: f64, fmax: f64) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64 ^ y.len() as u64;
+    for v in y.iter().step_by(509) {
+        h = (h ^ v.to_bits()).wrapping_mul(0x0100_0000_01b3);
+    }
+    (h ^ fmin.to_bits()).wrapping_mul(0x0100_0000_01b3) ^ fmax.to_bits()
+}
+
+/// pYIN of `y`, reused from `cache` when the same signal was tracked before
+/// (the pitch track is the slow part of detection and does not depend on the
+/// settings that are usually changed).
+pub fn cached_pyin(y: &[f64], fmin: f64, fmax: f64, cache: &Path) -> pyin::PyinOutput {
+    let key = pyin_key(y, fmin, fmax);
+    if let Ok(bytes) = std::fs::read(cache)
+        && bytes.len() >= 16
+        && bytes[..8] == key.to_le_bytes()
+    {
+        let n = u64::from_le_bytes(bytes[8..16].try_into().unwrap_or([0; 8])) as usize;
+        if bytes.len() == 16 + n * 17 {
+            let f64_at = |i: usize| f64::from_le_bytes(bytes[16 + i * 8..24 + i * 8].try_into().unwrap_or([0; 8]));
+            return pyin::PyinOutput {
+                f0: (0..n).map(f64_at).collect(),
+                voiced_prob: (n..2 * n).map(f64_at).collect(),
+                voiced: bytes[16 + 16 * n..].iter().map(|&b| b != 0).collect(),
+            };
+        }
+    }
+    let p = pyin::pyin(y, SR, fmin, fmax, 4096, HOP);
+    let mut out = Vec::with_capacity(16 + p.f0.len() * 17);
+    out.extend_from_slice(&key.to_le_bytes());
+    out.extend_from_slice(&(p.f0.len() as u64).to_le_bytes());
+    p.f0.iter().chain(&p.voiced_prob).for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
+    out.extend(p.voiced.iter().map(|&b| u8::from(b)));
+    let _ = std::fs::write(cache, out);
+    p
 }
 
 /// Detects and stores the result in the project.
