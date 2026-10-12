@@ -120,6 +120,8 @@ struct Compare {
 enum After {
     New(Option<PathBuf>),
     Open(Option<PathBuf>),
+    /// An official Rocksmith chart (.psarc or arrangement .xml).
+    ImportChart,
     Quit,
 }
 
@@ -245,6 +247,38 @@ impl App {
         }
     }
 
+    /// Opens an official chart as a new project, with its audio and every technique.
+    fn import_chart(&mut self, ctx: &egui::Context) {
+        let Some(chart) = rfd::FileDialog::new().add_filter("Rocksmith chart", &["psarc", "xml"]).set_title("Open official chart").pick_file() else {
+            return;
+        };
+        let is_xml = chart.extension().is_some_and(|e| e.eq_ignore_ascii_case("xml"));
+        let audio = if is_xml {
+            let Some(a) = rfd::FileDialog::new().add_filter("Audio", &["wav", "mp3", "flac", "ogg", "m4a"]).set_title("Pick the song this chart belongs to").pick_file() else {
+                return;
+            };
+            Some(a)
+        } else {
+            None
+        };
+        let Some(parent) = rfd::FileDialog::new().set_title("Where should the project be saved?").pick_folder() else { return };
+        let name = fw_project::default_folder(&chart).file_name().map(|n| n.to_os_string()).unwrap_or_default();
+        let folder = parent.join(name);
+        let result = match &audio {
+            Some(a) => fw_project::import::import_xml(&chart, a, &folder),
+            None => fw_project::import::import_psarc(&chart, &folder),
+        };
+        match result.and_then(|p| p.save().map(|_| p)) {
+            Ok(p) => {
+                let n = p.notes.len();
+                self.remember(&p.folder.clone());
+                self.set_project(Some(p));
+                self.set_status(ctx, format!("Opened official chart ({n} notes)"));
+            }
+            Err(e) => self.message("Could not open the chart", e.to_string()),
+        }
+    }
+
     fn save(&mut self, ctx: &egui::Context) -> bool {
         let Some(p) = &self.project else { return false };
         match p.save() {
@@ -284,6 +318,7 @@ impl App {
                     self.open(&f);
                 }
             }
+            After::ImportChart => self.import_chart(ctx),
             After::Quit => {
                 self.allow_close = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -625,6 +660,9 @@ impl App {
                 }
                 if ui.button("Open Project…").clicked() {
                     self.guarded(&ctx, After::Open(None));
+                }
+                if ui.button("Open Official Chart (.psarc / .xml)…").clicked() {
+                    self.guarded(&ctx, After::ImportChart);
                 }
                 ui.menu_button("Open Recent", |ui| {
                     let recent: Vec<String> = self.recent.iter().filter(|f| Path::new(f).is_dir()).cloned().collect();

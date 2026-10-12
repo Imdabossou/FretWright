@@ -55,6 +55,14 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
         finger_picking: !p.bass_picked,
         hopo: any(&|n| n.hammer_on || n.pull_off),
         slides: any(&|n| n.slide_to >= 0),
+        unpitched_slides: any(&|n| n.slide_unpitch_to >= 0),
+        bends: any(&|n| n.bend > 0.0),
+        harmonics: any(&|n| n.harmonic),
+        palm_mutes: any(&|n| n.palm_mute),
+        tremolo: any(&|n| n.tremolo),
+        tapping: any(&|n| n.tap),
+        vibrato: any(&|n| n.vibrato),
+        slap_pop: any(&|n| n.slap || n.pop),
         fret_hand_mutes: any(&|n| n.mute),
         two_finger_picking: !p.bass_picked,
         bass_pick: p.bass_picked,
@@ -99,18 +107,38 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
     let level_notes = notes
         .iter()
         .map(|n| {
-            let sustain = if n.duration() >= 0.2 || n.slide_to >= 0 { n.duration() } else { 0.0 };
+            let sliding = n.slide_to >= 0 || n.slide_unpitch_to >= 0;
+            let sustain = if n.duration() >= 0.2 || sliding || n.bend > 0.0 || n.link_next { n.duration() } else { 0.0 };
             let mut mask = xml::NoteMask::empty();
             mask.set(xml::NoteMask::ACCENT, n.accent);
             mask.set(xml::NoteMask::HAMMER_ON, n.hammer_on);
             mask.set(xml::NoteMask::PULL_OFF, n.pull_off);
             mask.set(xml::NoteMask::FRET_HAND_MUTE, n.mute);
+            mask.set(xml::NoteMask::PALM_MUTE, n.palm_mute);
+            mask.set(xml::NoteMask::HARMONIC, n.harmonic);
+            mask.set(xml::NoteMask::TREMOLO, n.tremolo);
+            mask.set(xml::NoteMask::SLAP, n.slap);
+            mask.set(xml::NoteMask::PLUCK, n.pop);
+            mask.set(xml::NoteMask::LINK_NEXT, n.link_next);
+            let bend_values = (n.bend > 0.0).then(|| {
+                // up to the bend over the first part of the note, held after that
+                let up = (sustain * 0.25 * 1000.0).round() as i32;
+                vec![
+                    xml::BendValue { time: ms(n.start) + up.max(1), step: n.bend },
+                    xml::BendValue { time: ms(n.start) + ms(sustain).max(2) - 1, step: n.bend },
+                ]
+            });
             xml::Note {
                 time: ms(n.start),
                 sustain: ms(sustain),
                 string: n.string as i8,
                 fret: n.fret as i8,
                 slide_to: n.slide_to as i8,
+                slide_unpitch_to: n.slide_unpitch_to as i8,
+                tap: i8::from(n.tap),
+                vibrato: if n.vibrato { 80 } else { 0 },
+                max_bend: n.bend,
+                bend_values,
                 mask,
                 ..Default::default()
             }

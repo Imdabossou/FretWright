@@ -2969,6 +2969,7 @@ dependencies = [
  "clap",
  "fw-audio",
  "fw-detect",
+ "fw-eval",
  "fw-models",
  "fw-package",
  "fw-project",
@@ -3008,6 +3009,15 @@ dependencies = [
  "rayon",
  "realfft",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "fw-eval"
+version = "1.0.0"
+dependencies = [
+ "fw-detect",
+ "fw-project",
+ "fw-xml",
 ]
 
 [[package]]
@@ -3064,6 +3074,7 @@ dependencies = [
  "fw-audio",
  "fw-package",
  "fw-psarc",
+ "fw-sng",
  "fw-xml",
  "serde",
  "serde_json",

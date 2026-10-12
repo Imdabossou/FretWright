@@ -17,6 +17,7 @@
 //!   Left/Right           nudge by one grid step (Shift: one beat)
 //!   Delete/Backspace     delete selection
 //!   H P M A S            toggle hammer-on, pull-off, mute, accent, slide (to next note's fret)
+//!   [ ]                  lower / raise the target fret of a slide
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -44,6 +45,11 @@ Keys
   Left/Right           nudge by one grid step (Shift: one beat)
   Delete/Backspace     delete selection
   H P M A S            hammer-on, pull-off, mute, accent, slide
+  [ and ]              lower / raise the target fret of a slide, or a bend's height
+  Marks on notes       H hammer-on, P pull-off, > accent, M fret-hand mute, PM palm mute,
+                       Hm harmonic, Tr tremolo, ~ vibrato, Sl slap, Po pop, Tp tap,
+                       L linked to the next note, b1 bend (steps); slanted line + number =
+                       slide to that fret, dashed line = slide out. More under right-click.
   Ctrl+A / Esc         select all / none
   Space                play / pause";
 
@@ -75,12 +81,102 @@ mod theme {
     pub const BEAT: Color32 = Color32::from_rgb(0x2a, 0x2f, 0x39);
     pub const BAR: Color32 = Color32::from_rgb(0x4a, 0x52, 0x63);
     pub const SUB: Color32 = Color32::from_rgb(0x20, 0x24, 0x2c);
-    pub const TEXT: Color32 = Color32::from_rgb(0xc9, 0xce, 0xd8);
     pub const DIM: Color32 = Color32::from_rgb(0x7d, 0x85, 0x94);
     pub const WAVE: Color32 = Color32::from_rgb(0x3c, 0x6e, 0x57);
     pub const WAVE_BG: Color32 = Color32::from_rgb(0x12, 0x14, 0x19);
     pub const RULER: Color32 = Color32::from_rgb(0x10, 0x12, 0x16);
     pub const RUBBER: Color32 = Color32::from_rgba_premultiplied(24, 34, 51, 50);
+}
+
+pub mod mark {
+    use eframe::egui::Color32;
+    pub const HAMMER: Color32 = Color32::from_rgb(0x5c, 0xc2, 0x6a);
+    pub const PULL: Color32 = Color32::from_rgb(0xf0, 0x9a, 0x2c);
+    pub const SLIDE: Color32 = Color32::from_rgb(0x4f, 0xd0, 0xe8);
+    pub const ACCENT: Color32 = Color32::from_rgb(0xee, 0xee, 0xf2);
+    pub const MUTE: Color32 = Color32::from_rgb(0xb0, 0x70, 0xe0);
+}
+
+/// Draws the technique marks of a note: a badge per technique along its top
+/// edge (always visible, however short the note) and a slanted line to the
+/// target fret for slides.
+fn draw_techniques(painter: &egui::Painter, n: &Note, r: Rect, head: Rect) {
+    let mut x = r.left();
+    let mut badge = |text: &str, fill: Color32| {
+        let w = if text.chars().count() > 1 { 20.0 } else { 14.0 };
+        let b = Rect::from_min_size(pos2(x, r.top() - 6.0), vec2(w, 11.0));
+        painter.rect_filled(b, CornerRadius::same(3), fill);
+        painter.text(b.center(), Align2::CENTER_CENTER, text, FontId::proportional(10.0), Color32::from_rgb(0x11, 0x11, 0x11));
+        x += w + 1.0;
+    };
+    if n.hammer_on {
+        badge("H", mark::HAMMER);
+    }
+    if n.pull_off {
+        badge("P", mark::PULL);
+    }
+    if n.accent {
+        badge(">", mark::ACCENT);
+    }
+    if n.mute {
+        badge("M", mark::MUTE);
+    }
+    if n.palm_mute {
+        badge("PM", mark::MUTE);
+    }
+    if n.harmonic {
+        badge("Hm", mark::SLIDE);
+    }
+    if n.tremolo {
+        badge("Tr", mark::PULL);
+    }
+    if n.vibrato {
+        badge("~", mark::PULL);
+    }
+    if n.slap {
+        badge("Sl", mark::HAMMER);
+    }
+    if n.pop {
+        badge("Po", mark::HAMMER);
+    }
+    if n.tap {
+        badge("Tp", mark::ACCENT);
+    }
+    if n.link_next {
+        badge("L", mark::ACCENT);
+    }
+    if n.bend > 0.0 {
+        badge(&format!("b{}", if n.bend.fract() == 0.0 { format!("{}", n.bend as i32) } else { format!("{:.1}", n.bend) }), mark::PULL);
+    }
+    if n.slide_unpitch_to >= 0 {
+        // slide off the string: a dashed line towards the fret it ends near
+        let up = n.slide_unpitch_to > n.fret;
+        let x0 = head.right() + 3.0;
+        let x1 = (r.right() - 4.0).max(x0 + 14.0);
+        let (top, bottom) = (r.top() + 5.0, r.bottom() - 5.0);
+        let (y0, y1) = if up { (bottom, top) } else { (top, bottom) };
+        let segs = 5;
+        for k in 0..segs {
+            let (a, b) = (k as f32 / segs as f32, (k as f32 + 0.6) / segs as f32);
+            let at = |f: f32| pos2(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f);
+            painter.line_segment([at(a), at(b)], Stroke::new(2.5, mark::SLIDE));
+        }
+        painter.text(pos2(x1 + 4.0, r.center().y), Align2::LEFT_CENTER, format!("out {}", n.slide_unpitch_to), FontId::proportional(10.0), mark::SLIDE);
+    }
+    if n.slide_to >= 0 {
+        let up = n.slide_to > n.fret;
+        let x0 = head.right() + 3.0;
+        let x1 = (r.right() - 4.0).max(x0 + 14.0);
+        let (top, bottom) = (r.top() + 5.0, r.bottom() - 5.0);
+        let (y0, y1) = if up { (bottom, top) } else { (top, bottom) };
+        painter.line_segment([pos2(x0, y0), pos2(x1, y1)], Stroke::new(2.5, mark::SLIDE));
+        painter.circle_filled(pos2(x1, y1), 3.0, mark::SLIDE);
+        let label = n.slide_to.to_string();
+        let galley = painter.layout_no_wrap(label, FontId::proportional(11.0), Color32::from_rgb(0x11, 0x11, 0x11));
+        let b = Rect::from_min_size(pos2(x1 + 4.0, r.center().y - 7.0), vec2(galley.size().x + 6.0, 14.0));
+        painter.rect_filled(b, CornerRadius::same(3), mark::SLIDE);
+        painter.galley(pos2(b.left() + 3.0, b.center().y - galley.size().y / 2.0), galley, Color32::BLACK);
+    }
 }
 
 /// A chart edit requested from a menu or key, applied with history.
@@ -92,6 +188,8 @@ pub enum Action {
     MoveString(i32),
     Nudge(i32, bool),
     Toggle(Technique),
+    /// Moves the target fret of the selected slides and the height of bends.
+    SlideTarget(i32),
     Refret { only_selected: bool },
     SetDownbeat(usize),
     SelectAll,
@@ -105,15 +203,60 @@ pub enum Technique {
     Mute,
     Accent,
     Slide,
+    SlideOut,
+    Bend,
+    Harmonic,
+    PalmMute,
+    Tremolo,
+    Vibrato,
+    Slap,
+    Pop,
+    Tap,
+    LinkNext,
 }
 
 impl Technique {
-    pub const ALL: [(Technique, &'static str); 5] = [
+    /// Whether `n` has this technique on.
+    pub fn is_on(self, n: &Note) -> bool {
+        match self {
+            Technique::HammerOn => n.hammer_on,
+            Technique::PullOff => n.pull_off,
+            Technique::Mute => n.mute,
+            Technique::Accent => n.accent,
+            Technique::Slide => n.slide_to >= 0,
+            Technique::SlideOut => n.slide_unpitch_to >= 0,
+            Technique::Bend => n.bend > 0.0,
+            Technique::Harmonic => n.harmonic,
+            Technique::PalmMute => n.palm_mute,
+            Technique::Tremolo => n.tremolo,
+            Technique::Vibrato => n.vibrato,
+            Technique::Slap => n.slap,
+            Technique::Pop => n.pop,
+            Technique::Tap => n.tap,
+            Technique::LinkNext => n.link_next,
+        }
+    }
+
+    /// The techniques of the right-click menu's main section.
+    pub const COMMON: [(Technique, &'static str); 5] = [
         (Technique::HammerOn, "Hammer-on"),
         (Technique::PullOff, "Pull-off"),
         (Technique::Mute, "Fret-hand mute"),
         (Technique::Accent, "Accent"),
         (Technique::Slide, "Slide"),
+    ];
+    /// The rest, in the menu's "More techniques" submenu.
+    pub const MORE: [(Technique, &'static str); 10] = [
+        (Technique::SlideOut, "Slide out (unpitched)"),
+        (Technique::Bend, "Bend"),
+        (Technique::Harmonic, "Harmonic"),
+        (Technique::PalmMute, "Palm mute"),
+        (Technique::Tremolo, "Tremolo"),
+        (Technique::Vibrato, "Vibrato"),
+        (Technique::Slap, "Slap"),
+        (Technique::Pop, "Pop"),
+        (Technique::Tap, "Tap"),
+        (Technique::LinkNext, "Link to next note"),
     ];
 }
 
@@ -342,34 +485,68 @@ impl Editor {
                 sort_keep(p, &mut self.selected);
             }
             Action::Toggle(t) => {
+                // one state for the whole selection: off if every note has it, otherwise on
+                let all = sel.iter().all(|&i| t.is_on(&p.notes[i]));
                 for &i in &sel {
                     let next = p.notes.get(i + 1).cloned();
                     let n = &mut p.notes[i];
                     match t {
                         Technique::Slide => {
-                            n.slide_to = if n.slide_to >= 0 {
+                            n.slide_to = if all {
                                 -1
+                            } else if n.slide_to >= 0 {
+                                n.slide_to
                             } else {
                                 match next {
-                                    Some(m) if m.string == n.string => m.fret,
+                                    Some(m) if m.string == n.string && m.fret != n.fret => m.fret,
                                     _ => (n.fret + 2).min(MAX_FRET),
                                 }
                             }
                         }
                         Technique::HammerOn => {
-                            n.hammer_on = !n.hammer_on;
+                            n.hammer_on = !all;
                             if n.hammer_on {
                                 n.pull_off = false;
                             }
                         }
                         Technique::PullOff => {
-                            n.pull_off = !n.pull_off;
+                            n.pull_off = !all;
                             if n.pull_off {
                                 n.hammer_on = false;
                             }
                         }
-                        Technique::Mute => n.mute = !n.mute,
-                        Technique::Accent => n.accent = !n.accent,
+                        Technique::Mute => n.mute = !all,
+                        Technique::Accent => n.accent = !all,
+                        Technique::SlideOut => n.slide_unpitch_to = if all { -1 } else { (n.fret + 5).min(MAX_FRET) },
+                        Technique::Bend => n.bend = if all { 0.0 } else { 1.0 },
+                        Technique::Harmonic => n.harmonic = !all,
+                        Technique::PalmMute => n.palm_mute = !all,
+                        Technique::Tremolo => n.tremolo = !all,
+                        Technique::Vibrato => n.vibrato = !all,
+                        Technique::Slap => {
+                            n.slap = !all;
+                            n.pop &= all;
+                        }
+                        Technique::Pop => {
+                            n.pop = !all;
+                            n.slap &= all;
+                        }
+                        Technique::Tap => n.tap = !all,
+                        Technique::LinkNext => n.link_next = !all,
+                    }
+                }
+            }
+            Action::SlideTarget(d) => {
+                for &i in &sel {
+                    let n = &mut p.notes[i];
+                    if n.slide_to >= 0 {
+                        n.slide_to = (n.slide_to + d).clamp(1, MAX_FRET);
+                    }
+                    if n.slide_unpitch_to >= 0 {
+                        n.slide_unpitch_to = (n.slide_unpitch_to + d).clamp(0, MAX_FRET);
+                    }
+                    if n.bend > 0.0 {
+                        n.bend = (n.bend + 0.5 * d as f32).clamp(0.5, 3.0);
                     }
                 }
             }
@@ -471,8 +648,11 @@ impl Editor {
                 i.zoom_delta(),
             )
         });
-        let in_editor = hover.is_some_and(|h| rect.contains(h));
-        let in_scrollbar = hover.is_some_and(|h| scroll_rect.contains(h));
+        // a menu or popup over the editor owns the pointer: its clicks must not also edit the chart
+        let covered = hover.is_some_and(|h| ui.ctx().layer_id_at(h).is_some_and(|l| l != ui.layer_id()));
+        let pressed = pressed && !covered;
+        let in_editor = hover.is_some_and(|h| rect.contains(h)) && !covered;
+        let in_scrollbar = hover.is_some_and(|h| scroll_rect.contains(h)) && !covered;
 
         if in_editor && (zoom - 1.0).abs() > 1e-3 {
             self.zoom(zoom, hover.map(|h| h.x - rect.left()), p);
@@ -641,6 +821,10 @@ impl Editor {
         let mut menu_action = None;
         let has_sel = !self.selected.is_empty();
         let menu_beat = self.menu_beat;
+        let all_on = |t: &Technique| has_sel && self.selected.iter().filter_map(|&i| p.notes.get(i)).all(|n| t.is_on(n));
+        let common_on: Vec<bool> = Technique::COMMON.iter().map(|(t, _)| all_on(t)).collect();
+        let more_on: Vec<bool> = Technique::MORE.iter().map(|(t, _)| all_on(t)).collect();
+        let has_slide = self.selected.iter().filter_map(|&i| p.notes.get(i)).any(|n| n.slide_to >= 0 || n.slide_unpitch_to >= 0 || n.bend > 0.0);
         resp.context_menu(|ui| {
             if has_sel {
                 if ui.button("Delete notes").clicked() {
@@ -650,9 +834,25 @@ impl Editor {
                     menu_action = Some(Action::Refret { only_selected: true });
                 }
                 ui.separator();
-                for (t, label) in Technique::ALL {
-                    if ui.button(format!("Toggle {label}")).clicked() {
+                for ((t, label), mut on) in Technique::COMMON.into_iter().zip(common_on) {
+                    if ui.checkbox(&mut on, label).clicked() {
                         menu_action = Some(Action::Toggle(t));
+                    }
+                }
+                ui.menu_button("More techniques", |ui| {
+                    for ((t, label), mut on) in Technique::MORE.into_iter().zip(more_on) {
+                        if ui.checkbox(&mut on, label).clicked() {
+                            menu_action = Some(Action::Toggle(t));
+                            ui.close();
+                        }
+                    }
+                });
+                if has_slide {
+                    if ui.button("Slide target / bend height +  ( ] )").clicked() {
+                        menu_action = Some(Action::SlideTarget(1));
+                    }
+                    if ui.button("Slide target / bend height -  ( [ )").clicked() {
+                        menu_action = Some(Action::SlideTarget(-1));
                     }
                 }
             }
@@ -773,14 +973,7 @@ impl Editor {
             }
             let label = if n.mute { "X".to_string() } else { n.fret.to_string() };
             painter.text(head.center(), Align2::CENTER_CENTER, label, FontId::proportional(13.0), Color32::from_rgb(0x11, 0x11, 0x11));
-            let marks: String = [("H", n.hammer_on), ("P", n.pull_off), (">", n.accent), ("/", n.slide_to >= 0)]
-                .iter()
-                .filter(|m| m.1)
-                .map(|m| m.0)
-                .collect();
-            if !marks.is_empty() && r.width() > 30.0 {
-                painter.text(pos2(r.left() + 25.0, r.center().y), Align2::LEFT_CENTER, marks, FontId::proportional(12.0), theme::TEXT);
-            }
+            draw_techniques(&painter, n, r, head);
         }
 
         // string names
@@ -856,6 +1049,8 @@ impl Editor {
             Key::A if m.command => Action::SelectAll,
             Key::A => Action::Toggle(Technique::Accent),
             Key::S if !m.command => Action::Toggle(Technique::Slide),
+            Key::OpenBracket => Action::SlideTarget(-1),
+            Key::CloseBracket => Action::SlideTarget(1),
             Key::Escape => Action::SelectNone,
             _ => return None,
         })
@@ -891,6 +1086,47 @@ mod tests {
         assert_eq!(p.notes.len(), 2);
         assert!(h.undo(&mut p) && h.undo(&mut p) && h.undo(&mut p) && h.undo(&mut p));
         assert_eq!((p.notes.len(), p.notes[0].fret), (3, 0));
+    }
+
+    #[test]
+    fn techniques_toggle_as_a_group_and_slides_retarget() {
+        let (mut e, mut p, mut h) = (Editor::default(), project(), History::default());
+        p.notes[0].hammer_on = true;
+        e.selected = [0, 1].into();
+        e.apply(Action::Toggle(Technique::HammerOn), &mut p, &mut h); // mixed -> all on
+        assert!(p.notes[0].hammer_on && p.notes[1].hammer_on);
+        e.apply(Action::Toggle(Technique::HammerOn), &mut p, &mut h); // all on -> all off
+        assert!(!p.notes[0].hammer_on && !p.notes[1].hammer_on);
+
+        e.selected = [1].into();
+        e.apply(Action::Toggle(Technique::Slide), &mut p, &mut h);
+        assert!(p.notes[1].slide_to >= 0);
+        e.apply(Action::SlideTarget(-100), &mut p, &mut h);
+        assert_eq!(p.notes[1].slide_to, 1);
+        e.apply(Action::SlideTarget(100), &mut p, &mut h);
+        assert_eq!(p.notes[1].slide_to, MAX_FRET);
+        e.selected = [0].into();
+        e.apply(Action::SlideTarget(3), &mut p, &mut h); // not a slide: untouched
+        assert_eq!(p.notes[0].slide_to, -1);
+    }
+
+    #[test]
+    fn the_other_techniques_toggle_and_bends_resize() {
+        let (mut e, mut p, mut h) = (Editor::default(), project(), History::default());
+        e.selected = [0].into();
+        for (t, _) in Technique::COMMON.iter().chain(Technique::MORE.iter()) {
+            e.apply(Action::Toggle(*t), &mut p, &mut h);
+            assert!(t.is_on(&p.notes[0]), "{t:?} should turn on");
+        }
+        // slap and pop exclude each other: the later toggle won
+        assert!(p.notes[0].pop && !p.notes[0].slap);
+        e.apply(Action::SlideTarget(2), &mut p, &mut h);
+        assert_eq!(p.notes[0].bend, 2.0);
+        e.apply(Action::SlideTarget(-100), &mut p, &mut h);
+        assert_eq!(p.notes[0].bend, 0.5);
+        for (t, _) in Technique::COMMON.iter().chain(Technique::MORE.iter()) {
+            e.apply(Action::Toggle(*t), &mut p, &mut h);
+        }
     }
 
     #[test]

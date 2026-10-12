@@ -4,6 +4,7 @@
 
 mod arrangement;
 mod build;
+pub mod import;
 
 use std::path::{Path, PathBuf};
 
@@ -108,6 +109,30 @@ pub struct Note {
     pub mute: bool,
     #[serde(default)]
     pub accent: bool,
+    /// Slide out to nowhere in particular (unpitched), ending on this fret; -1 = none.
+    #[serde(default = "minus_one")]
+    pub slide_unpitch_to: i32,
+    /// Bend height in whole steps (0 = no bend).
+    #[serde(default)]
+    pub bend: f32,
+    #[serde(default)]
+    pub harmonic: bool,
+    #[serde(default)]
+    pub palm_mute: bool,
+    #[serde(default)]
+    pub tremolo: bool,
+    #[serde(default)]
+    pub slap: bool,
+    /// Popped (plucked) string.
+    #[serde(default)]
+    pub pop: bool,
+    #[serde(default)]
+    pub tap: bool,
+    #[serde(default)]
+    pub vibrato: bool,
+    /// Tied into the next note (the slide or sustain carries on).
+    #[serde(default)]
+    pub link_next: bool,
 }
 
 impl Note {
@@ -125,10 +150,63 @@ impl Note {
             pull_off: false,
             mute: false,
             accent: false,
+            slide_unpitch_to: -1,
+            bend: 0.0,
+            harmonic: false,
+            palm_mute: false,
+            tremolo: false,
+            slap: false,
+            pop: false,
+            tap: false,
+            vibrato: false,
+            link_next: false,
         }
     }
     pub fn duration(&self) -> f64 {
         self.end - self.start
+    }
+
+    /// Names of the techniques the note carries, in a fixed order.
+    pub fn technique_names(&self) -> Vec<&'static str> {
+        [
+            ("hammer-on", self.hammer_on),
+            ("pull-off", self.pull_off),
+            ("slide", self.slide_to >= 0),
+            ("slide-out", self.slide_unpitch_to >= 0),
+            ("bend", self.bend > 0.0),
+            ("harmonic", self.harmonic),
+            ("palm mute", self.palm_mute),
+            ("fret-hand mute", self.mute),
+            ("accent", self.accent),
+            ("tremolo", self.tremolo),
+            ("vibrato", self.vibrato),
+            ("slap", self.slap),
+            ("pop", self.pop),
+            ("tap", self.tap),
+            ("link next", self.link_next),
+        ]
+        .into_iter()
+        .filter_map(|(name, on)| on.then_some(name))
+        .collect()
+    }
+
+    /// Whether the note carries any technique mark.
+    pub fn has_technique(&self) -> bool {
+        self.hammer_on
+            || self.pull_off
+            || self.mute
+            || self.accent
+            || self.slide_to >= 0
+            || self.slide_unpitch_to >= 0
+            || self.bend > 0.0
+            || self.harmonic
+            || self.palm_mute
+            || self.tremolo
+            || self.slap
+            || self.pop
+            || self.tap
+            || self.vibrato
+            || self.link_next
     }
 }
 
