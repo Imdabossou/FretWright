@@ -5,7 +5,7 @@ detection, a tab editor with playback, and `.psarc` building. One program,
 written in Rust: no Python, no Wwise, no Wine, no Windows tools.
 
 ```
-song.mp3 ─► Demucs (bass stem, on your GPU) ─► Beat This! + pYIN ─► editor ─► .psarc
+song.mp3 ─► Demucs (bass stem, on your GPU) ─► Beat This! + note networks ─► editor ─► .psarc
 ```
 
 <p align="center"><img src="assets/fretwright.png" width="128" alt="FretWright icon"></p>
@@ -63,7 +63,7 @@ fretwright-cli --help
 |-------|-----|
 | Bass separation | Meta's Demucs v4 (fine-tuned, standard or 6-stem) via [demucs-rs](https://github.com/nikhilunni/demucs-rs) on any Vulkan, Metal or DX12 GPU (or the CPU); or a plain low-pass filter |
 | Beats and bars | [Beat This!](https://github.com/CPJKU/beat_this) (ISMIR 2024) on [rten](https://github.com/robertknight/rten), or a classic tracker |
-| Pitch and notes | pYIN, onset detection and note segmentation ported from librosa, then a string/fret optimiser |
+| Notes | two small neural networks trained on official charts (note starts, pitch), fused with spectral-flux onsets; harmonic and pYIN pitch remain as alternatives; a string model picks strings by sound, then a string/fret optimiser |
 | Charting | phrases, sections and dynamic difficulty, ported from [Rocksmith2014.NET](https://github.com/iminashi/Rocksmith2014.NET) |
 | Audio | Wwise 2013 Vorbis `.wem` via [rabbit-smith/wem](https://github.com/rabbit-smith/wem), so Wwise is not needed |
 | Packaging | SNG, manifests, sound banks and encrypted PSARC, written from scratch in Rust |
@@ -77,7 +77,9 @@ the original (PyTorch, librosa, Rocksmith2014.NET); the credits are in
 ```
 crates/fw-app       the desktop app (egui)
 crates/fw-cli       the fretwright-cli command line tool
-crates/fw-detect    signal processing: pYIN, onsets, beats, notes, fretting
+crates/fw-detect    signal processing and the note networks: onsets, pitch, beats, notes, fretting
+crates/fw-eval      scores the detector against official charts (bench, score)
+tools/ml            Python training of the networks
 crates/fw-models    neural networks: Beat This!, Demucs, model downloads
 crates/fw-project   project files, chart conversion, build pipeline
 crates/fw-package   manifests, sound banks, album art, packaging

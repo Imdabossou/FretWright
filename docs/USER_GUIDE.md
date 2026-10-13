@@ -37,6 +37,11 @@ classic beat tracker, but noticeably worse.
 - **Bass tuning**: E Standard, Drop D, Eb Standard, Drop C#, D Standard,
   Drop C, C# Standard or C Standard.
 
+**File → Open Official Chart (.psarc / .xml)** opens a Rocksmith package or an arrangement
+`.xml` as a project: its bass arrangement and song audio (decoded from the package) come
+with every technique, so you can see, hear and edit an official chart. Packages with
+stereo 44.1 kHz audio need `vgmstream-cli` on the PATH to decode it.
+
 **File → Open Project** opens a `project.fretwright.json`. **Open Recent** remembers
 the last ten. You can also pass a project folder or a song to `fretwright` on the
 command line.
@@ -48,7 +53,8 @@ The **Detection** tab:
 | Setting | Choices |
 |---------|---------|
 | Bass separation | *Demucs v4 fine-tuned* (best, default), *Demucs v4* (faster), *Demucs v4 6-stem*, *Low-pass filter* (no AI) |
-| Pitch tracking | *pYIN* |
+| Note starts | *Neural network* (default; trained on official charts, backed by spectral flux) or *Spectral flux* |
+| Pitch tracking | *Neural network* (default), *Harmonic match* (works on distorted bass) or *pYIN* |
 | Beat tracking | *Beat This!* (finds bar lines too) or the *classic tracker* |
 | Device | *Auto* uses the GPU when one works (Vulkan, Metal or DX12), else the CPU |
 | Shortest note | notes shorter than this are dropped (default 60 ms) |
@@ -96,6 +102,7 @@ bass stem's waveform, and the ruler numbers the bars.
 | Shift+Up / Shift+Down | move to the next string, keeping the pitch |
 | Left / Right | nudge by one grid step (Shift: one beat) |
 | H P M A S | hammer-on, pull-off, fret-hand mute, accent, slide (to the next note's fret) |
+| [ and ] | lower / raise the target fret of a slide, or the height of a bend |
 | Delete / Backspace | delete the selection |
 | Ctrl+A / Esc | select all / none |
 | Ctrl+Z / Ctrl+Shift+Z | undo / redo |
@@ -163,6 +170,24 @@ fretwright-cli sng info file.sng                                # inspect a char
 - **No sound**: *Tools → System check* shows the audio output. On Linux,
   FretWright uses ALSA (PipeWire and PulseAudio provide it).
 - **Notes are an octave off**: select them and use Up/Down 12 times, or
-  re-detect with another separator. pYIN occasionally locks onto harmonics.
+  re-detect with another separator or pitch method.
 - **The grid drifts**: songs with tempo changes are tracked beat by beat, so
   this is rare. Use the ±10 ms buttons for a constant offset.
+
+## Techniques
+
+Right-click a note for its menu: tick the techniques you want (hammer-on, pull-off, fret-hand mute,
+accent, slide), or open **More techniques** for slide-out, bend, harmonic, palm mute, tremolo, vibrato,
+slap, pop, tap and link-to-next. Each shows on the note: **H** hammer-on, **P** pull-off, **>** accent,
+**M** fret-hand mute, **PM** palm mute, **Hm** harmonic, **Tr** tremolo, **~** vibrato, **Sl** slap,
+**Po** pop, **Tp** tap, **L** linked, **b1** bend (height in steps). A slanted line with a number is a
+slide to that fret; a dashed line is a slide out. The detector does not mark techniques yet: it finds
+notes, strings and frets, and the techniques are for you to add.
+
+## How good is the detection?
+
+Measured against 20 official Rocksmith bass charts (each song scored by models that never saw it):
+the overall F1 is about 71% (66% of the chart's notes are found with the right pitch and place, and
+76% of the notes we make are real), and string and fret agree with the charters on 75% of those. Busy, fast and
+chord-heavy basslines are the hard part (two-note chords are not detected yet). `fretwright-cli bench`
+reruns the measurement on any folder of official `.psarc` files.

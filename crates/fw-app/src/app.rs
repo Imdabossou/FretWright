@@ -30,6 +30,10 @@ pub const PITCH: &[(&str, &str, &str)] = &[
     ("harmonic", "Harmonic match", "Finds each note's pitch from the harmonics in its own audio. Works on distorted bass."),
     ("pyin", "pYIN", "Classic probabilistic YIN. Fast, reliable on a clean bass stem."),
 ];
+pub const ONSETS: &[(&str, &str, &str)] = &[
+    ("net", "Neural network", "A small network trained on official Rocksmith charts finds where notes start, backed by spectral flux. Best overall."),
+    ("flux", "Spectral flux", "Peaks of the stem's spectral change. No AI; misses some quiet or repeated notes."),
+];
 pub const BEATS: &[(&str, &str, &str)] = &[
     ("beat_this", "Beat This! (neural)", "State-of-the-art transformer beat and downbeat tracker (ISMIR 2024). Finds bar lines too."),
     ("librosa", "Classic tracker", "Dynamic-programming beat tracker. No downbeats; weaker on intros."),
@@ -925,6 +929,9 @@ impl App {
             ui.label("Bass separation");
             combo(ui, "sep", SEPARATORS, &mut d.separator);
             ui.end_row();
+            ui.label("Note starts");
+            combo(ui, "onsets", ONSETS, &mut d.onsets);
+            ui.end_row();
             ui.label("Pitch tracking");
             combo(ui, "pitch", PITCH, &mut d.pitch);
             ui.end_row();
@@ -952,7 +959,7 @@ impl App {
             ui.end_row();
         });
         ui.add_space(6.0);
-        for (items, id) in [(SEPARATORS, &d.separator), (PITCH, &d.pitch), (BEATS, &d.beats)] {
+        for (items, id) in [(SEPARATORS, &d.separator), (ONSETS, &d.onsets), (PITCH, &d.pitch), (BEATS, &d.beats)] {
             if let Some((_, l, desc)) = items.iter().find(|i| i.0 == id) {
                 ui.label(RichText::new(format!("{l}: {desc}")).weak());
             }
