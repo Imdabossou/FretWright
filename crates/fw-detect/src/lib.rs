@@ -11,3 +11,4 @@ pub mod pipeline;
 pub mod pitch;
 pub mod pitch_net;
 pub mod pyin;
+pub mod timbre;

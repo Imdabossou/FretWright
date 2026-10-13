@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use fw_project::{BeatGrid, DetectionSettings, MAX_FRET, Note, Project};
 
-use crate::{beats, dsp, fretting, notes, onset, onset_net, pitch_net, pyin};
+use crate::{beats, dsp, fretting, notes, onset, onset_net, pitch_net, pyin, timbre};
 
 pub const SR: f64 = 22050.0;
 pub const HOP: usize = 256;
@@ -197,9 +197,41 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
     notes::fit_to_range(&mut found, open);
 
     progress("Choosing strings and frets", 0.95);
-    fretting::assign(&mut found, open, &Default::default());
+    let sound = string_opinions(&bass, &found, open, cache_dir, &mut warnings);
+    fretting::assign_with(&mut found, open, &Default::default(), sound.as_deref());
     progress("Done", 1.0);
     Ok(Detection { notes: found, grid, duration, warnings })
+}
+
+/// The string model shipped with the program.
+const DEFAULT_STRING_MODEL: &[u8] = include_bytes!("../models/string_net.bin");
+
+/// For each note, how likely each string is judging by its sound (`None` for notes too
+/// short to judge). A project folder's own `string_net.bin` takes precedence.
+fn string_opinions(bass: &[f64], found: &[Note], open: &[i32; 4], cache_dir: &Path, warnings: &mut Vec<String>) -> Option<Vec<Option<[f32; 4]>>> {
+    use rayon::prelude::*;
+    let custom = std::fs::read(cache_dir.join("string_net.bin")).ok();
+    let net = match timbre::StringNet::from_bytes(custom.as_deref().unwrap_or(DEFAULT_STRING_MODEL)) {
+        Ok(n) => n,
+        Err(e) => {
+            warnings.push(format!("string model unavailable ({e}); strings were chosen by hand position alone"));
+            return None;
+        }
+    };
+    let analyzer = timbre::TimbreAnalyzer::default();
+    Some(
+        found
+            .par_iter()
+            .map(|n| {
+                let allowed: [bool; 4] = std::array::from_fn(|s| (0..=MAX_FRET).contains(&(n.midi - open[s])));
+                if allowed.iter().filter(|a| **a).count() < 2 {
+                    return None;
+                }
+                let end = n.end.min(n.start + 0.8) - 0.01;
+                analyzer.features(bass, SR, n.start + 0.02, end, n.midi).map(|f| net.log_probs(&f, allowed))
+            })
+            .collect(),
+    )
 }
 
 /// Which notes sound when, from the pitch networks (a project folder's `pitch_net*.bin`

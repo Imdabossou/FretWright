@@ -47,3 +47,15 @@ Copy the `.bin` files to `crates/fw-detect/models/` (they are listed in `DEFAULT
 For an honest score on songs a model trained on, train a fold model without that song and put it in the
 song's work folder as `onset_net.bin` / `pitch_net.bin`: the detector prefers `onset_net*.bin` and
 `pitch_net*.bin` files in the project folder to the built-in ones.
+
+## The string model
+
+A tiny model (11 measurements of a note's sound -> which of the four strings) helps choose string and
+fret: the same pitch sounds a little different on each string. Retrain it with more songs the same way:
+
+    cargo run --release -p fw-eval --example string_features -- <work> string_features.csv
+    python string_train.py string_features.csv <work> final string_net.bin
+
+Copy `string_net.bin` to `crates/fw-detect/models/`. On the first 20 songs it names the string correctly
+for 63% of notes that could be played on more than one (a "lowest fret" rule gets 35%), and string/fret
+agreement with the charters goes from 58% to 75% of the notes found with the right pitch.
