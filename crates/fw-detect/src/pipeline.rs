@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use fw_project::{BeatGrid, DetectionSettings, MAX_FRET, Note, Project};
 
-use crate::{beats, dsp, fretting, notes, onset, onset_net, pyin};
+use crate::{beats, dsp, fretting, notes, onset, onset_net, pitch_net, pyin};
 
 pub const SR: f64 = 22050.0;
 pub const HOP: usize = 256;
@@ -178,6 +178,7 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
     } else {
         progress("Finding notes", 0.40);
         let onsets = find_onsets(&bass, &settings.onsets, cache_dir, &mut warnings);
+        let roll = if settings.pitch == "net" { find_pitch_roll(&bass, cache_dir, &mut warnings) } else { None };
         let (found, tuning) = notes::segment_by_salience(
             &bass,
             SR,
@@ -185,6 +186,7 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
             open[0] - 1,
             open[3] + MAX_FRET + 1,
             &notes::SalienceSegmentation { min_note_s: settings.min_note_ms / 1000.0, ..Default::default() },
+            roll.as_ref(),
         );
         if tuning.abs() > 0.15 {
             warnings.push(format!("the recording is {:+.0} cents from A=440; notes were corrected for it", tuning * 100.0));
@@ -200,16 +202,55 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
     Ok(Detection { notes: found, grid, duration, warnings })
 }
 
+/// Which notes sound when, from the pitch networks (a project folder's `pitch_net*.bin`
+/// files, or the ones shipped with the program), averaged. `None` if they cannot be loaded.
+fn find_pitch_roll(bass: &[f64], cache_dir: &Path, warnings: &mut Vec<String>) -> Option<pitch_net::PitchRoll> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(cache_dir)
+        .map(|d| d.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("pitch_net") && n.ends_with(".bin"))).collect())
+        .unwrap_or_default();
+    files.sort();
+    let nets: Result<Vec<pitch_net::PitchNet>, String> = if files.is_empty() {
+        DEFAULT_PITCH_MODELS.iter().map(|b| pitch_net::PitchNet::from_bytes(b)).collect()
+    } else {
+        files.iter().map(|f| pitch_net::PitchNet::from_bytes(&std::fs::read(f).map_err(|e| e.to_string())?)).collect()
+    };
+    match nets {
+        Ok(nets) if !nets.is_empty() => {
+            let mut rolls = nets.iter().map(|n| n.probabilities(bass));
+            let mut first = rolls.next()?;
+            let mut count = 1.0f32;
+            for r in rolls {
+                first.add(&r);
+                count += 1.0;
+            }
+            first.scale(1.0 / count);
+            Some(first)
+        }
+        Ok(_) => None,
+        Err(e) => {
+            warnings.push(format!("pitch network unavailable ({e}); used the harmonic search"));
+            None
+        }
+    }
+}
+
 /// The network trained on official charts, shipped with the program.
 const DEFAULT_ONSET_MODELS: &[&[u8]] = &[
     include_bytes!("../models/onset_net_0.bin"),
     include_bytes!("../models/onset_net_1.bin"),
     include_bytes!("../models/onset_net_2.bin"),
 ];
+const DEFAULT_PITCH_MODELS: &[&[u8]] = &[
+    include_bytes!("../models/pitch_net_0.bin"),
+    include_bytes!("../models/pitch_net_1.bin"),
+    include_bytes!("../models/pitch_net_2.bin"),
+];
 /// A frame whose note-start probability is at least this starts a note.
 const ONSET_THRESHOLD: f32 = 0.65;
 /// How much the spectral flux counts next to the network (the network alone is 1.0).
 const FLUX_WEIGHT: f64 = 0.5;
+/// Network peaks below this probability are not even considered.
+const NET_LOW: f64 = 0.25;
 
 /// Note starts of a bass stem: from the onset network (or, with `method` "flux", from
 /// spectral-flux peaks). A project folder may hold its own `onset_net.bin`.
@@ -218,12 +259,7 @@ fn find_onsets(bass: &[f64], method: &str, cache_dir: &Path, warnings: &mut Vec<
         match load_onset_nets(cache_dir) {
             Ok(nets) => {
                 let prob = average_probabilities(&nets, bass);
-                let knob = |name: &str, default: f64| std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
-                let (threshold, flux_weight) = (knob("FW_NETTHR", ONSET_THRESHOLD as f64), knob("FW_FLUXW", FLUX_WEIGHT));
-                if flux_weight <= 0.0 {
-                    return onset_net::pick_onsets(&prob, threshold as f32);
-                }
-                return fuse_onsets(bass, &prob, threshold, flux_weight, knob("FW_NETLOW", 0.25));
+                return fuse_onsets(bass, &prob, ONSET_THRESHOLD as f64, FLUX_WEIGHT, NET_LOW);
             }
             Err(e) => warnings.push(format!("onset network unavailable ({e}); used spectral flux")),
         }

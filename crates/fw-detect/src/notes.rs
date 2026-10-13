@@ -279,11 +279,13 @@ pub struct SalienceSegmentation {
     /// How strongly a song's own frequent notes are favoured in the second pass
     /// (0 = not at all); a song plays few different notes.
     pub prior_strength: f64,
+    /// With a pitch network: notes it gives less than this probability are dropped.
+    pub min_net_prob: f64,
 }
 
 impl Default for SalienceSegmentation {
     fn default() -> Self {
-        SalienceSegmentation { min_note_s: 0.06, attack_s: 0.0, tail_s: 0.01, min_confidence: 2.0, gate_db: -40.0, prior_strength: 0.1 }
+        SalienceSegmentation { min_note_s: 0.06, attack_s: 0.0, tail_s: 0.01, min_confidence: 2.0, gate_db: -40.0, prior_strength: 0.1, min_net_prob: 0.45 }
     }
 }
 
@@ -291,7 +293,7 @@ impl Default for SalienceSegmentation {
 /// next onset or until its sound dies away; its pitch is the best match of
 /// harmonics in its own spectrum. Returns the notes and the recording's
 /// tuning offset in semitones.
-pub fn segment_by_salience(bass: &[f64], sr: f64, onsets: &[f64], lo: i32, hi: i32, cfg: &SalienceSegmentation) -> (Vec<Note>, f64) {
+pub fn segment_by_salience(bass: &[f64], sr: f64, onsets: &[f64], lo: i32, hi: i32, cfg: &SalienceSegmentation, roll: Option<&crate::pitch_net::PitchRoll>) -> (Vec<Note>, f64) {
     use rayon::prelude::*;
     const ENV_WIN: usize = 512;
     const ENV_HOP: usize = 128;
@@ -324,11 +326,31 @@ pub fn segment_by_salience(bass: &[f64], sr: f64, onsets: &[f64], lo: i32, hi: i
         }
     }
 
-    let analyzer = Analyzer::new(bass, sr, lo, hi);
     let window = |&(s, e): &(f64, f64)| {
         let (from, to) = (s + cfg.attack_s, e - cfg.tail_s);
         if to - from >= 0.04 { (from, to) } else { (s, e) }
     };
+    // with a pitch network each note takes the semitone it rates most probable over its span
+    if let Some(roll) = roll {
+        let notes: Vec<Note> = spans
+            .iter()
+            .filter_map(|sp| {
+                let (from, to) = window(sp);
+                let mean = roll.mean(from, to);
+                let (idx, p) = (0..mean.len())
+                    .filter(|&i| (lo..=hi).contains(&(crate::pitch_net::LO_MIDI + i as i32)))
+                    .map(|i| (i, mean[i] as f64))
+                    .max_by(|a, b| a.1.total_cmp(&b.1))?;
+                (p >= cfg.min_net_prob).then(|| {
+                    let mut n = Note::new(sp.0, sp.1, crate::pitch_net::LO_MIDI + idx as i32);
+                    n.confidence = p.clamp(0.0, 1.0);
+                    n
+                })
+            })
+            .collect();
+        return (notes, 0.0);
+    }
+    let analyzer = Analyzer::new(bass, sr, lo, hi);
     // first pass: where does the recording sit against A=440?
     let rough: Vec<pitch::Estimate> = spans
         .par_iter()

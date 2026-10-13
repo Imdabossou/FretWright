@@ -262,7 +262,7 @@ impl Default for DetectionSettings {
     fn default() -> Self {
         DetectionSettings {
             separator: "htdemucs_ft".into(),
-            pitch: "harmonic".into(),
+            pitch: "net".into(),
             beats: "beat_this".into(),
             min_note_ms: 60.0,
             snap_division: 4,

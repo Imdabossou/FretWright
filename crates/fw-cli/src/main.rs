@@ -73,7 +73,7 @@ enum Cmd {
         cache_dir: PathBuf,
         #[arg(long, default_value = "htdemucs_ft")]
         separator: String,
-        #[arg(long, default_value = "harmonic")]
+        #[arg(long, default_value = "net")]
         pitch: String,
         #[arg(long, default_value = "beat_this")]
         beats: String,
@@ -125,8 +125,8 @@ enum Cmd {
         /// "none" skips beat tracking (the score does not use the grid); "beat_this" runs it
         #[arg(long, default_value = "none")]
         beats: String,
-        /// "harmonic" (default) or "pyin"
-        #[arg(long, default_value = "harmonic")]
+        /// "net" (default), "harmonic" or "pyin"
+        #[arg(long, default_value = "net")]
         pitch: String,
         /// "net" (default) or "flux"
         #[arg(long, default_value = "net")]
@@ -315,7 +315,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Score { audio, chart, cache_dir, notes, save_notes, report, tol_ms, separator, min_note_ms, snap, device } => {
-            let settings = fw_project::DetectionSettings { separator, pitch: "harmonic".into(), beats: "beat_this".into(), min_note_ms, snap_division: snap, device, ..Default::default() };
+            let settings = fw_project::DetectionSettings { separator, pitch: "net".into(), beats: "beat_this".into(), min_note_ms, snap_division: snap, device, ..Default::default() };
             score(&audio, &chart, &cache_dir, &settings, notes.as_deref(), save_notes.as_deref(), report.as_deref(), tol_ms / 1000.0)
         }
         Cmd::Audio(cmd) => audio(cmd),

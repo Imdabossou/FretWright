@@ -26,7 +26,8 @@ pub const SEPARATORS: &[(&str, &str, &str)] = &[
     ("lowpass", "Low-pass filter (no AI)", "Instant, but kick drum and other instruments leak in. Poor accuracy."),
 ];
 pub const PITCH: &[(&str, &str, &str)] = &[
-    ("harmonic", "Harmonic match", "Finds each note's pitch from the harmonics in its own audio. Best overall, and works on distorted bass."),
+    ("net", "Neural network", "A small network trained on official Rocksmith charts names the notes. Best overall."),
+    ("harmonic", "Harmonic match", "Finds each note's pitch from the harmonics in its own audio. Works on distorted bass."),
     ("pyin", "pYIN", "Classic probabilistic YIN. Fast, reliable on a clean bass stem."),
 ];
 pub const BEATS: &[(&str, &str, &str)] = &[
