@@ -121,9 +121,6 @@ pub fn superflux_strength(y: &[f64], sr: f64, n_fft: usize, hop: usize, lag: usi
     env
 }
 
-/// Onset times (seconds) of a bass stem: [`superflux_strength`] peak-picked
-/// against a local average. Finds re-picked repeats of one note that the
-/// librosa-style detector above misses.
 /// Onset candidates `(time, margin)`: peaks of [`superflux_strength`] that rise
 /// at least `delta_low` above their surroundings. `margin` is how far they rise,
 /// scaled by the song's 99th-percentile level. Candidates closer than 60 ms keep
@@ -164,7 +161,13 @@ pub fn bass_onset_candidates(y: &[f64], sr: f64, delta_low: f64) -> Vec<(f64, f6
 }
 
 /// Onset times (seconds) of a bass stem: the candidates that rise clearly.
+///
+/// Gap-filling soft candidates in steady runs, accepting soft candidates on the
+/// beat grid, and accepting them across pitch changes were all tried on the 20
+/// test songs: each added recall at the price of as much precision, so the
+/// plain threshold stays.
 pub fn bass_onsets(y: &[f64], sr: f64) -> Vec<f64> {
-    let delta: f64 = std::env::var("FW_DELTA").ok().and_then(|v| v.parse().ok()).unwrap_or(0.11);
-    bass_onset_candidates(y, sr, delta).into_iter().map(|c| c.0).collect()
+    /// Picked on the 20 official test songs: lower finds more notes but too many false ones.
+    const DELTA: f64 = 0.11;
+    bass_onset_candidates(y, sr, DELTA).into_iter().map(|c| c.0).collect()
 }

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use fw_project::{BeatGrid, DetectionSettings, MAX_FRET, Note, Project};
 
-use crate::{beats, dsp, fretting, notes, onset, pyin};
+use crate::{beats, dsp, fretting, notes, onset, onset_net, pyin};
 
 pub const SR: f64 = 22050.0;
 pub const HOP: usize = 256;
@@ -177,25 +177,15 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
         found
     } else {
         progress("Finding notes", 0.40);
-        let strong = lab("DELTA", 0.11);
-        let weak = lab("WEAK", 0.04);
-        let candidates = onset::bass_onset_candidates(&bass, SR, weak.min(strong));
-        let cfg = notes::SalienceSegmentation {
-            strong_margin: strong,
-            weak_margin: weak,
-            change_window_s: lab("CHANGEWIN", 0.12),
-            change_confidence: lab("CHANGECONF", 2.0),
-            grid_tol_s: lab("GRIDTOL", 0.03),
-            pitch_change: lab("PITCHCHG", 0.0) > 0.0,
-            accent_ratio: lab("ACCENT", 0.0),
-            min_note_s: settings.min_note_ms / 1000.0,
-            attack_s: lab("ATTACK", 0.0),
-            tail_s: lab("TAIL", 0.01),
-            min_confidence: lab("MINCONF", 2.0),
-            gate_db: lab("GATE", -40.0),
-        };
-        let subs = notes::subdivisions(&grid, 4);
-        let (found, tuning) = notes::segment_by_salience(&bass, SR, &candidates, &subs, open[0] - 1, open[3] + MAX_FRET + 1, &cfg);
+        let onsets = find_onsets(&bass, &settings.onsets, cache_dir, &mut warnings);
+        let (found, tuning) = notes::segment_by_salience(
+            &bass,
+            SR,
+            &onsets,
+            open[0] - 1,
+            open[3] + MAX_FRET + 1,
+            &notes::SalienceSegmentation { min_note_s: settings.min_note_ms / 1000.0, ..Default::default() },
+        );
         if tuning.abs() > 0.15 {
             warnings.push(format!("the recording is {:+.0} cents from A=440; notes were corrected for it", tuning * 100.0));
         }
@@ -210,9 +200,102 @@ pub fn detect(audio: &Path, settings: &DetectionSettings, open: &[i32; 4], cache
     Ok(Detection { notes: found, grid, duration, warnings })
 }
 
-/// Experiment knob: `FW_<name>` in the environment overrides `default`.
-fn lab(name: &str, default: f64) -> f64 {
-    std::env::var(format!("FW_{name}")).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+/// The network trained on official charts, shipped with the program.
+const DEFAULT_ONSET_MODELS: &[&[u8]] = &[
+    include_bytes!("../models/onset_net_0.bin"),
+    include_bytes!("../models/onset_net_1.bin"),
+    include_bytes!("../models/onset_net_2.bin"),
+];
+/// A frame whose note-start probability is at least this starts a note.
+const ONSET_THRESHOLD: f32 = 0.65;
+/// How much the spectral flux counts next to the network (the network alone is 1.0).
+const FLUX_WEIGHT: f64 = 0.5;
+
+/// Note starts of a bass stem: from the onset network (or, with `method` "flux", from
+/// spectral-flux peaks). A project folder may hold its own `onset_net.bin`.
+fn find_onsets(bass: &[f64], method: &str, cache_dir: &Path, warnings: &mut Vec<String>) -> Vec<f64> {
+    if method != "flux" {
+        match load_onset_nets(cache_dir) {
+            Ok(nets) => {
+                let prob = average_probabilities(&nets, bass);
+                let knob = |name: &str, default: f64| std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
+                let (threshold, flux_weight) = (knob("FW_NETTHR", ONSET_THRESHOLD as f64), knob("FW_FLUXW", FLUX_WEIGHT));
+                if flux_weight <= 0.0 {
+                    return onset_net::pick_onsets(&prob, threshold as f32);
+                }
+                return fuse_onsets(bass, &prob, threshold, flux_weight, knob("FW_NETLOW", 0.25));
+            }
+            Err(e) => warnings.push(format!("onset network unavailable ({e}); used spectral flux")),
+        }
+    }
+    onset::bass_onsets(bass, SR)
+}
+
+/// The onset networks to use: the `onset_net*.bin` files in the project folder if there
+/// are any, otherwise the ones shipped with the program.
+fn load_onset_nets(cache_dir: &Path) -> Result<Vec<onset_net::OnsetNet>, String> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(cache_dir)
+        .map(|d| d.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("onset_net") && n.ends_with(".bin"))).collect())
+        .unwrap_or_default();
+    files.sort();
+    if files.is_empty() {
+        return DEFAULT_ONSET_MODELS.iter().map(|b| onset_net::OnsetNet::from_bytes(b)).collect();
+    }
+    files.iter().map(|f| onset_net::OnsetNet::from_bytes(&std::fs::read(f).map_err(|e| e.to_string())?)).collect()
+}
+
+/// The mean of the networks' note-start probabilities.
+fn average_probabilities(nets: &[onset_net::OnsetNet], bass: &[f64]) -> Vec<f32> {
+    let mut sum: Vec<f32> = Vec::new();
+    for net in nets {
+        let p = net.probabilities(bass);
+        if sum.is_empty() {
+            sum = p;
+        } else {
+            sum.iter_mut().zip(&p).for_each(|(a, b)| *a += b);
+        }
+    }
+    sum.iter_mut().for_each(|v| *v /= nets.len().max(1) as f32);
+    sum
+}
+
+/// Candidates from both detectors, each scored by the network's probability plus
+/// `flux_weight` times how clearly the spectral flux rises there.
+fn fuse_onsets(bass: &[f64], prob: &[f32], threshold: f64, flux_weight: f64, net_low: f64) -> Vec<f64> {
+    let frame_t = 128.0 / SR;
+    let flux = onset::bass_onset_candidates(bass, SR, 0.03);
+    let net_peaks = onset_net::pick_onsets(prob, net_low as f32);
+    let mut cands: Vec<f64> = net_peaks.clone();
+    cands.extend(flux.iter().map(|c| c.0));
+    cands.sort_by(|a, b| a.total_cmp(b));
+    let near = |t: f64| -> (f64, f64) {
+        let (a, b) = (((t - 0.025) / frame_t).max(0.0) as usize, (((t + 0.025) / frame_t) as usize + 1).min(prob.len()));
+        let p = prob[a.min(b)..b].iter().copied().fold(0.0f32, f32::max) as f64;
+        let m = flux.iter().filter(|c| (c.0 - t).abs() <= 0.025).map(|c| c.1).fold(0.0, f64::max);
+        (p, m)
+    };
+    let mut scored: Vec<(f64, f64)> = cands
+        .iter()
+        .map(|&t| {
+            let (p, m) = near(t);
+            (t, p + flux_weight * (m / 0.3).min(1.0))
+        })
+        .filter(|c| c.1 >= threshold)
+        .collect();
+    // keep the best of any candidates closer than 60 ms
+    let mut out: Vec<(f64, f64)> = Vec::new();
+    scored.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for c in scored {
+        match out.last_mut() {
+            Some(last) if c.0 - last.0 < 0.06 => {
+                if c.1 > last.1 {
+                    *last = c;
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out.into_iter().map(|c| c.0).collect()
 }
 
 /// Where the pitch track of a stem is cached next to the stem.

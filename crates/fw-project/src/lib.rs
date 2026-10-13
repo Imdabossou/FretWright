@@ -254,17 +254,20 @@ pub struct DetectionSettings {
     pub min_note_ms: f64,
     pub snap_division: u32,
     pub device: String,
+    /// "net" (a neural network trained on official charts) or "flux" (spectral-flux peaks).
+    pub onsets: String,
 }
 
 impl Default for DetectionSettings {
     fn default() -> Self {
         DetectionSettings {
             separator: "htdemucs_ft".into(),
-            pitch: "pyin".into(),
+            pitch: "harmonic".into(),
             beats: "beat_this".into(),
             min_note_ms: 60.0,
             snap_division: 4,
             device: "auto".into(),
+            onsets: "net".into(),
         }
     }
 }

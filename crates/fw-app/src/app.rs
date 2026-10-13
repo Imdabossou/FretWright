@@ -25,7 +25,10 @@ pub const SEPARATORS: &[(&str, &str, &str)] = &[
     ),
     ("lowpass", "Low-pass filter (no AI)", "Instant, but kick drum and other instruments leak in. Poor accuracy."),
 ];
-pub const PITCH: &[(&str, &str, &str)] = &[("pyin", "pYIN", "Classic probabilistic YIN. Fast, very reliable on a clean bass stem.")];
+pub const PITCH: &[(&str, &str, &str)] = &[
+    ("harmonic", "Harmonic match", "Finds each note's pitch from the harmonics in its own audio. Best overall, and works on distorted bass."),
+    ("pyin", "pYIN", "Classic probabilistic YIN. Fast, reliable on a clean bass stem."),
+];
 pub const BEATS: &[(&str, &str, &str)] = &[
     ("beat_this", "Beat This! (neural)", "State-of-the-art transformer beat and downbeat tracker (ISMIR 2024). Finds bar lines too."),
     ("librosa", "Classic tracker", "Dynamic-programming beat tracker. No downbeats; weaker on intros."),
@@ -59,7 +62,7 @@ struct CompareRow {
 
 enum Output {
     Models(Vec<PathBuf>),
-    Detection(Detection, DetectionSettings),
+    Detection(Detection, Box<DetectionSettings>),
     Build(Vec<PathBuf>, Box<Project>),
     Compare(Vec<CompareRow>),
 }
@@ -453,7 +456,7 @@ impl App {
         let (audio, settings, open, folder) = (PathBuf::from(&p.audio_path), p.detection.clone(), p.open_strings(), p.folder.clone());
         self.spawn(ctx, "Detection", move |progress| {
             fw_detect::pipeline::detect(&audio, &settings, &open, &folder, progress)
-                .map(|d| Output::Detection(d, settings))
+                .map(|d| Output::Detection(d, Box::new(settings)))
                 .map_err(|e| e.to_string())
         });
     }
@@ -494,7 +497,6 @@ impl App {
             for (k, sep) in separators.iter().enumerate() {
                 let mut s = base.clone();
                 s.separator = sep.clone();
-                s.pitch = "pyin".into();
                 let sub = |m: &str, f: f64| progress(&format!("[{}/{}] {sep}: {m}", k + 1, separators.len()), (k as f64 + f) / n);
                 let t = std::time::Instant::now();
                 let det = pipeline::detect(&audio, &s, &open, &folder, &sub).map_err(|e| e.to_string())?;
@@ -560,6 +562,7 @@ impl App {
                 self.set_status(ctx, format!("Downloaded {} model file(s)", paths.len()));
             }
             Some(Msg::Done(Output::Detection(det, settings))) => {
+                let settings = *settings;
                 self.job = None;
                 let (n, bpm) = (det.notes.len(), det.grid.tempo);
                 let warnings = det.warnings.clone();

@@ -102,10 +102,10 @@ pub fn bench(songs: &Path, work: &Path, only: Option<&str>, tol: f64, settings: 
     }
 
     let prev_f1 = |name: &str| previous.as_ref().and_then(|p| p["songs"][name]["f1"].as_f64());
-    println!("{:18} {:>6} {:>6} {:>7} {:>9} {:>7} {:>8} {:>8} {:>8}", "song", "notes", "found", "recall", "precision", "F1", "change", "lag ms", "err ms");
+    println!("{:18} {:>6} {:>6} {:>7} {:>9} {:>7} {:>8} {:>8} {:>8} {:>7} {:>7}", "song", "notes", "found", "recall", "precision", "F1", "change", "lag ms", "err ms", "silent", "merged");
     for s in &done {
         let delta = prev_f1(&s.name).map_or(String::new(), |p| format!("{:+.1}", (s.f1 - p) * 100.0));
-        println!("{:18} {:6} {:6} {:6.1}% {:8.1}% {:6.1}% {:>8} {:8.0} {:8.0}", s.name, s.reference, s.detected, s.recall * 100.0, s.precision * 100.0, s.f1 * 100.0, delta, s.lag_ms, s.median_err_ms);
+        println!("{:18} {:6} {:6} {:6.1}% {:8.1}% {:6.1}% {:>8} {:8.0} {:8.0} {:7} {:7}", s.name, s.reference, s.detected, s.recall * 100.0, s.precision * 100.0, s.f1 * 100.0, delta, s.lag_ms, s.median_err_ms, s.misses.get(&fw_eval::Miss::Silent).copied().unwrap_or(0), s.misses.get(&fw_eval::Miss::Merged).copied().unwrap_or(0));
     }
     let (r, d, m): (usize, usize, usize) = done.iter().fold((0, 0, 0), |a, s| (a.0 + s.reference, a.1 + s.detected, a.2 + s.matched));
     let (rec, prec) = (m as f64 / r.max(1) as f64, m as f64 / d.max(1) as f64);
