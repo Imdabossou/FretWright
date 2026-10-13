@@ -252,3 +252,32 @@ pub fn pick_onsets(prob: &[f32], threshold: f32) -> Vec<f64> {
     }
     out.into_iter().map(|i| i as f64 * HOP as f64 / 22050.0).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picks_peaks_above_the_threshold_and_keeps_them_apart() {
+        let mut p = vec![0.0f32; 100];
+        p[10] = 0.9;
+        p[12] = 0.95; // too close to frame 10: only the higher survives
+        p[40] = 0.6;
+        p[70] = 0.3; // below the threshold
+        let hop = 128.0 / 22050.0;
+        let got = pick_onsets(&p, 0.5);
+        assert_eq!(got.len(), 2);
+        assert!((got[0] - 12.0 * hop).abs() < 1e-9 && (got[1] - 40.0 * hop).abs() < 1e-9);
+    }
+
+    #[test]
+    fn shipped_models_load_and_run_on_silence() {
+        for bytes in [&include_bytes!("../models/onset_net_0.bin")[..], &include_bytes!("../models/onset_net_1.bin")[..], &include_bytes!("../models/onset_net_2.bin")[..]] {
+            let net = OnsetNet::from_bytes(bytes).expect("model");
+            let prob = net.probabilities(&vec![0.0; 22050]);
+            assert_eq!(prob.len(), 1 + 22050 / 128);
+            assert!(prob.iter().all(|p| (0.0..=1.0).contains(p)));
+        }
+        assert!(OnsetNet::from_bytes(b"nope").is_err());
+    }
+}
