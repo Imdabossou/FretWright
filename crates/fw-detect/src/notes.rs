@@ -276,27 +276,22 @@ pub struct SalienceSegmentation {
     pub min_confidence: f64,
     /// Segments quieter than this many dB below the loudest are silence.
     pub gate_db: f64,
-    /// Onset candidates rising at least this much always start a note.
-    pub strong_margin: f64,
-    /// Softer candidates (down to this margin) start a note when the pitch changes across them.
-    pub weak_margin: f64,
-    /// Length of the stretches compared before and after a soft candidate.
-    pub change_window_s: f64,
-    /// Both stretches must name their note at least this clearly.
-    pub change_confidence: f64,
-    /// Soft candidates within this many seconds of a grid line count as onsets (0 = off).
-    pub grid_tol_s: f64,
-    /// Soft candidates also count when the pitch changes across them.
-    pub pitch_change: bool,
-    /// A note louder than this times its neighbours' median is an accent (0 = never).
-    pub accent_ratio: f64,
+    /// How strongly a song's own frequent notes are favoured in the second pass
+    /// (0 = not at all); a song plays few different notes.
+    pub prior_strength: f64,
+}
+
+impl Default for SalienceSegmentation {
+    fn default() -> Self {
+        SalienceSegmentation { min_note_s: 0.06, attack_s: 0.0, tail_s: 0.01, min_confidence: 2.0, gate_db: -40.0, prior_strength: 0.1 }
+    }
 }
 
 /// Notes from onset times: a note starts at every onset and lasts until the
 /// next onset or until its sound dies away; its pitch is the best match of
 /// harmonics in its own spectrum. Returns the notes and the recording's
 /// tuning offset in semitones.
-pub fn segment_by_salience(bass: &[f64], sr: f64, candidates: &[(f64, f64)], grid: &[f64], lo: i32, hi: i32, cfg: &SalienceSegmentation) -> (Vec<Note>, f64) {
+pub fn segment_by_salience(bass: &[f64], sr: f64, onsets: &[f64], lo: i32, hi: i32, cfg: &SalienceSegmentation) -> (Vec<Note>, f64) {
     use rayon::prelude::*;
     const ENV_WIN: usize = 512;
     const ENV_HOP: usize = 128;
@@ -309,29 +304,25 @@ pub fn segment_by_salience(bass: &[f64], sr: f64, candidates: &[(f64, f64)], gri
     let gate = loudest * 10f64.powf(cfg.gate_db / 20.0);
     let duration = bass.len() as f64 / sr;
 
-    let strong: Vec<f64> = candidates.iter().filter(|c| c.1 >= cfg.strong_margin).map(|c| c.0).collect();
-    let spans_for = |onsets: &[f64]| -> Vec<(f64, f64)> {
-        let mut spans: Vec<(f64, f64)> = Vec::new();
-        for (i, &start) in onsets.iter().enumerate() {
-            let limit = onsets.get(i + 1).copied().unwrap_or((start + 1.5).min(duration));
-            let (a, b) = (((start / hop_t) as usize).min(env.len()), ((limit / hop_t) as usize).min(env.len()));
-            if b <= a {
-                continue;
-            }
-            let peak = env[a..b].iter().copied().fold(0.0, f64::max);
-            if peak < gate {
-                continue;
-            }
-            let floor = peak * 10f64.powf(-30.0 / 20.0);
-            let last = (a..b).rev().find(|&f| env[f] >= floor).unwrap_or(a);
-            let end = (((last + 1) as f64 * hop_t).min(limit)).max(start);
-            if end - start >= cfg.min_note_s {
-                spans.push((start, end));
-            }
+    // [start, end) of every sounding stretch
+    let mut spans: Vec<(f64, f64)> = Vec::new();
+    for (i, &start) in onsets.iter().enumerate() {
+        let limit = onsets.get(i + 1).copied().unwrap_or((start + 1.5).min(duration));
+        let (a, b) = (((start / hop_t) as usize).min(env.len()), ((limit / hop_t) as usize).min(env.len()));
+        if b <= a {
+            continue;
         }
-        spans
-    };
-    let spans = spans_for(&strong);
+        let peak = env[a..b].iter().copied().fold(0.0, f64::max);
+        if peak < gate {
+            continue;
+        }
+        let floor = peak * 10f64.powf(-30.0 / 20.0);
+        let last = (a..b).rev().find(|&f| env[f] >= floor).unwrap_or(a);
+        let end = (((last + 1) as f64 * hop_t).min(limit)).max(start);
+        if end - start >= cfg.min_note_s {
+            spans.push((start, end));
+        }
+    }
 
     let analyzer = Analyzer::new(bass, sr, lo, hi);
     let window = |&(s, e): &(f64, f64)| {
@@ -348,47 +339,8 @@ pub fn segment_by_salience(bass: &[f64], sr: f64, candidates: &[(f64, f64)], gri
         .collect();
     let tuning = pitch::tuning_from(&rough);
 
-    // soft onsets count when the note changes across them (octave jumps, hammer-ons, pull-offs)
-    let mut onsets = strong.clone();
-    let mut legato: Vec<f64> = Vec::new();
-    if cfg.weak_margin < cfg.strong_margin {
-        let accepted: Vec<f64> = candidates
-            .iter()
-            .filter(|c| c.1 >= cfg.weak_margin && c.1 < cfg.strong_margin)
-            .filter_map(|c| {
-                let t = c.0;
-                // a soft onset that lands on the rhythmic grid is far more likely a real note than one that does not
-                if cfg.grid_tol_s > 0.0 && !grid.is_empty() {
-                    let k = grid.partition_point(|&g| g < t);
-                    let near = [k.wrapping_sub(1), k].iter().filter_map(|&j| grid.get(j)).any(|g| (g - t).abs() <= cfg.grid_tol_s);
-                    if near {
-                        return Some(t);
-                    }
-                }
-                if !cfg.pitch_change {
-                    return None;
-                }
-                let i = strong.partition_point(|&s| s < t);
-                let before_limit = if i > 0 { strong[i - 1] + 0.02 } else { 0.0 };
-                let after_limit = strong.get(i).map_or(duration, |s| s - 0.02);
-                let (a_from, a_to) = ((t - cfg.change_window_s).max(before_limit), t - 0.015);
-                let (b_from, b_to) = (t + 0.015, (t + cfg.change_window_s).min(after_limit));
-                if a_to - a_from < 0.04 || b_to - b_from < 0.04 {
-                    return None;
-                }
-                let (ea, eb) = (analyzer.estimate(a_from, a_to, tuning)?, analyzer.estimate(b_from, b_to, tuning)?);
-                (ea.midi != eb.midi && ea.confidence >= cfg.change_confidence && eb.confidence >= cfg.change_confidence).then_some(t)
-            })
-            .collect();
-        legato = accepted.clone();
-        onsets.extend(accepted);
-        onsets.sort_by(|a, b| a.total_cmp(b));
-    }
-    let spans = if onsets.len() == strong.len() { spans } else { spans_for(&onsets) };
-
-    // second pass: a song plays few different notes, so favour the ones the first pass kept finding
-    let gamma = std::env::var("FW_PRIOR").ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.1);
-    let prior: Option<Vec<f64>> = (gamma > 0.0).then(|| {
+    // second pass: favour the notes the first pass kept finding
+    let prior: Option<Vec<f64>> = (cfg.prior_strength > 0.0).then(|| {
         let mut count = vec![0.0f64; (hi - lo + 1) as usize];
         let first: Vec<Option<pitch::Estimate>> = spans
             .par_iter()
@@ -401,7 +353,7 @@ pub fn segment_by_salience(bass: &[f64], sr: f64, candidates: &[(f64, f64)], gri
             count[(e.midi - lo) as usize] += 1.0;
         }
         let total: f64 = count.iter().sum::<f64>() + count.len() as f64;
-        count.iter().map(|c| ((c + 1.0) / total).powf(gamma)).collect()
+        count.iter().map(|c| ((c + 1.0) / total).powf(cfg.prior_strength)).collect()
     });
 
     let notes: Vec<Option<Note>> = spans
@@ -416,32 +368,5 @@ pub fn segment_by_salience(bass: &[f64], sr: f64, candidates: &[(f64, f64)], gri
             })
         })
         .collect();
-    let mut out: Vec<Note> = notes.into_iter().flatten().collect();
-
-    // a note that starts on a pitch change with no fresh pluck is a hammer-on (up) or pull-off (down)
-    for i in 1..out.len() {
-        let (prev_end, prev_midi) = (out[i - 1].end, out[i - 1].midi);
-        let n = &mut out[i];
-        if legato.iter().any(|&t| (t - n.start).abs() < 1e-6) && n.start - prev_end < 0.04 {
-            if n.midi > prev_midi {
-                n.hammer_on = true;
-            } else if n.midi < prev_midi {
-                n.pull_off = true;
-            }
-        }
-    }
-    // an accent is a note clearly louder than the ones around it
-    if cfg.accent_ratio > 0.0 && out.len() > 8 {
-        let peak = |n: &Note| env[((n.start / hop_t) as usize).min(env.len() - 1)..(((n.start + 0.08) / hop_t) as usize).clamp(1, env.len())].iter().copied().fold(0.0, f64::max);
-        let peaks: Vec<f64> = out.iter().map(peak).collect();
-        for i in 0..out.len() {
-            let (a, b) = (i.saturating_sub(6), (i + 7).min(out.len()));
-            let mut around: Vec<f64> = peaks[a..b].to_vec();
-            around.sort_by(|x, y| x.total_cmp(y));
-            if peaks[i] > cfg.accent_ratio * around[around.len() / 2] {
-                out[i].accent = true;
-            }
-        }
-    }
-    (out, tuning)
+    (notes.into_iter().flatten().collect(), tuning)
 }

@@ -73,7 +73,7 @@ enum Cmd {
         cache_dir: PathBuf,
         #[arg(long, default_value = "htdemucs_ft")]
         separator: String,
-        #[arg(long, default_value = "pyin")]
+        #[arg(long, default_value = "harmonic")]
         pitch: String,
         #[arg(long, default_value = "beat_this")]
         beats: String,
@@ -128,6 +128,9 @@ enum Cmd {
         /// "harmonic" (default) or "pyin"
         #[arg(long, default_value = "harmonic")]
         pitch: String,
+        /// "net" (default) or "flux"
+        #[arg(long, default_value = "net")]
+        onsets: String,
     },
     /// Score the detector against an official chart: detects the bass line of
     /// `audio` and compares it with the top-difficulty notes of `chart` (a
@@ -280,11 +283,11 @@ fn main() -> Result<()> {
             Some(other) => anyhow::bail!("unknown models action '{other}' (try: download)"),
         },
         Cmd::DetectAudio { audio, cache_dir, separator, pitch, beats, device, min_note_ms, snap, open } => {
-            let settings = fw_project::DetectionSettings { separator, pitch, beats, min_note_ms, snap_division: snap, device };
+            let settings = fw_project::DetectionSettings { separator, pitch, beats, min_note_ms, snap_division: snap, device, ..Default::default() };
             detect_audio(&audio, &settings, &open, &cache_dir)
         }
-        Cmd::Bench { songs, work, only, tol_ms, separator, min_note_ms, snap, device, beats, pitch } => {
-            let settings = fw_project::DetectionSettings { separator, pitch, beats, min_note_ms, snap_division: snap, device };
+        Cmd::Bench { songs, work, only, tol_ms, separator, min_note_ms, snap, device, beats, pitch, onsets } => {
+            let settings = fw_project::DetectionSettings { separator, pitch, beats, min_note_ms, snap_division: snap, device, onsets };
             bench::bench(&songs, &work, only.as_deref(), tol_ms / 1000.0, &settings)
         }
         Cmd::Import { chart, audio, out } => {
@@ -312,7 +315,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Score { audio, chart, cache_dir, notes, save_notes, report, tol_ms, separator, min_note_ms, snap, device } => {
-            let settings = fw_project::DetectionSettings { separator, pitch: "pyin".into(), beats: "beat_this".into(), min_note_ms, snap_division: snap, device };
+            let settings = fw_project::DetectionSettings { separator, pitch: "harmonic".into(), beats: "beat_this".into(), min_note_ms, snap_division: snap, device, ..Default::default() };
             score(&audio, &chart, &cache_dir, &settings, notes.as_deref(), save_notes.as_deref(), report.as_deref(), tol_ms / 1000.0)
         }
         Cmd::Audio(cmd) => audio(cmd),
