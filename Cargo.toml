@@ -5,7 +5,7 @@ members = ["crates/*"]
 exclude = ["third_party"]
 
 [workspace.package]
-version = "1.1.0"
+version = "1.1.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/Imdabossou/FretWright"
