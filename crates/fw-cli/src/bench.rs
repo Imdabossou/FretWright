@@ -23,6 +23,8 @@ struct Song {
     lag_ms: f64,
     median_err_ms: f64,
     fret_agree: usize,
+    /// (mean move, leap share) for our notes and for the chart's
+    hand: ((f64, f64), (f64, f64)),
 }
 
 fn song_name(psarc: &Path) -> String {
@@ -68,6 +70,11 @@ fn run_song(psarc: &Path, work: &Path, settings: &fw_project::DetectionSettings,
         misses: s.miss_counts(),
         extra: s.extra.len(),
         fret_agree: s.fretting_agrees,
+        hand: {
+            let (a, b, _) = fw_eval::hand_movement(&det.notes);
+            let (c, d, _) = fw_eval::hand_movement(&project.notes);
+            ((a, b), (c, d))
+        },
         lag_ms: s.offset * 1000.0,
         median_err_ms: s.median_onset_error() * 1000.0,
         techniques: s.techniques,
@@ -124,6 +131,26 @@ pub fn bench(songs: &Path, work: &Path, only: Option<&str>, tol: f64, settings: 
     );
 
     println!("\nstring and fret agree with the chart on {:.1}% of the notes found with the right pitch", 100.0 * done.iter().map(|s| s.fret_agree).sum::<usize>() as f64 / m.max(1) as f64);
+    let n_songs = done.len() as f64;
+    let avg = |f: &dyn Fn(&Song) -> f64| done.iter().map(f).sum::<f64>() / n_songs;
+    let median = |f: &dyn Fn(&Song) -> f64| {
+        let mut v: Vec<f64> = done.iter().map(f).collect();
+        v.sort_by(|a, b| a.total_cmp(b));
+        v[v.len() / 2]
+    };
+    println!(
+        "hand movement (median song): ours {:.2} frets per note, {:.1}% leaps over 4 frets; the charts {:.2} frets, {:.1}% leaps",
+        median(&|s| s.hand.0.0),
+        100.0 * median(&|s| s.hand.0.1),
+        median(&|s| s.hand.1.0),
+        100.0 * median(&|s| s.hand.1.1)
+    );
+    let _ = avg;
+    if std::env::var("FW_HAND").is_ok() {
+        for s in &done {
+            println!("  {:16} ours {:4.2} frets {:4.1}% leaps | chart {:4.2} frets {:4.1}% leaps", s.name, s.hand.0.0, 100.0 * s.hand.0.1, s.hand.1.0, 100.0 * s.hand.1.1);
+        }
+    }
     let mut causes: BTreeMap<fw_eval::Miss, usize> = BTreeMap::new();
     for s in &done {
         for (k, v) in &s.misses {

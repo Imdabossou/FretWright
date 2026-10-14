@@ -126,6 +126,44 @@ pub fn reference_from_notes(notes: &[Note]) -> Vec<RefNote> {
     notes.iter().map(|n| RefNote { start: n.start, end: n.end, midi: n.midi, string: n.string, fret: n.fret, techniques: n.technique_names() }).collect()
 }
 
+/// How much the fretting hand moves: over consecutive notes less than a second
+/// apart, the mean distance in frets from the hand's position (the last fretted
+/// note, so open strings do not reset it) to the next fretted note, and the share
+/// of those moves that are leaps of more than 4 frets.
+pub fn hand_movement(notes: &[Note]) -> (f64, f64, usize) {
+    let mut order: Vec<&Note> = notes.iter().collect();
+    order.sort_by(|a, b| a.start.total_cmp(&b.start));
+    let (mut total, mut leaps, mut moves) = (0.0, 0usize, 0usize);
+    let mut hand: Option<(i32, f64)> = None; // fret, time of the last note
+    let mut last_start = f64::MIN;
+    for n in order {
+        if (n.start - last_start).abs() < 0.015 {
+            continue; // the other notes of a chord
+        }
+        last_start = n.start;
+        if let Some((h, t)) = hand
+            && n.start - t > 1.0
+        {
+            // a long rest: the hand can go anywhere
+            hand = if n.fret > 0 { Some((n.fret, n.start)) } else { None };
+            let _ = h;
+            continue;
+        }
+        if n.fret > 0 {
+            if let Some((h, _)) = hand {
+                let d = (n.fret - h).abs();
+                total += d as f64;
+                leaps += usize::from(d > 4);
+                moves += 1;
+            }
+            hand = Some((n.fret, n.start));
+        } else if let Some((h, _)) = hand {
+            hand = Some((h, n.start));
+        }
+    }
+    (total / moves.max(1) as f64, leaps as f64 / moves.max(1) as f64, moves)
+}
+
 /// Greedy one-to-one matching of chart notes to detected notes, closest first.
 /// `ok(r, d)` decides which pairs may match.
 fn pair(reference: &[RefNote], detected: &[Note], tol: f64, ref_free: &mut [bool], det_free: &mut [bool], ok: impl Fn(&RefNote, &Note) -> bool) -> Vec<(usize, usize)> {
