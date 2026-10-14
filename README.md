@@ -41,7 +41,7 @@ on any Vulkan, Metal or DX12 GPU) for those songs.
 
 1. Install: clone into feedBack's plugins folder as `fretwright` and restart.
    ```bash
-   cd plugins && git clone https://github.com/<you>/feedBack-plugin-fretwright fretwright
+   cd plugins && git clone https://github.com/Imdabossou/feedBack-plugin-fretwright fretwright
    ```
 2. Get `fretwright-cli` from a FretWright release (or build it with
    `cargo build --release -p fw-cli`), run `fretwright-cli models download` once, and
