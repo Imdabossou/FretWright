@@ -120,4 +120,4 @@ if __name__ == '__main__':
         single, pair = evaluate(net, x, notes)
         print(f'{n}: single-note events {100 * single[0] / max(single[1], 1):.1f}% of {single[1]};'
               f' two-note events: both found {100 * pair[0] / max(pair[2], 1):.1f}%, one right {100 * pair[1] / max(pair[2], 1):.1f}% of {pair[2]}', flush=True)
-    torch.save(net.state_dict(), os.environ.get('OUT', f'/home/claude/fw-bench/ml/pitch_fold{fold}.pt'))
+    torch.save(net.state_dict(), os.environ.get('OUT', f'pitch_fold{fold}.pt'))
