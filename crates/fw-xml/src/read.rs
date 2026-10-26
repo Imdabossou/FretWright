@@ -98,7 +98,10 @@ fn element(e: &quick_xml::events::BytesStart) -> Result<El> {
     for a in e.attributes() {
         let a = a.map_err(|e| Error::Syntax(e.to_string()))?;
         let key = String::from_utf8_lossy(a.key.local_name().as_ref()).into_owned();
-        let value = a.unescape_value().map_err(|e| Error::Syntax(e.to_string()))?.into_owned();
+        let value = a
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+            .map_err(|e| Error::Syntax(e.to_string()))?
+            .into_owned();
         attrs.push((key, value));
     }
     Ok(El { name, attrs, ..Default::default() })
