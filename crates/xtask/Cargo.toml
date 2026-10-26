@@ -12,7 +12,7 @@ anyhow = "1"
 serde_json = "1"
 flate2.workspace = true
 tar = "0.4"
-zip = { version = "7", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [lints]
 workspace = true

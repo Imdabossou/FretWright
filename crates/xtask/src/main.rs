@@ -358,3 +358,36 @@ fn main() -> Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zip_dir_keeps_layout_and_modes() {
+        let tmp = std::env::temp_dir().join(format!("xtask-zip-{}", std::process::id()));
+        let app = tmp.join("FretWright");
+        fs::create_dir_all(app.join("models")).unwrap();
+        fs::write(app.join("models/net.bin"), b"weights").unwrap();
+        fs::write(app.join("fretwright"), b"#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(app.join("fretwright"), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let archive = tmp.join("out.zip");
+        zip_dir(&app, &tmp, &archive).unwrap();
+
+        let mut z = zip::ZipArchive::new(fs::File::open(&archive).unwrap()).unwrap();
+        let mut names: Vec<String> = z.file_names().map(|n| n.unwrap().into_owned()).collect();
+        names.sort();
+        assert_eq!(names, ["FretWright/fretwright", "FretWright/models/", "FretWright/models/net.bin"]);
+        let mut data = String::new();
+        std::io::Read::read_to_string(&mut z.by_name("FretWright/models/net.bin").unwrap(), &mut data).unwrap();
+        assert_eq!(data, "weights");
+        assert_eq!(z.by_name("FretWright/models/net.bin").unwrap().unix_mode().map(|m| m & 0o777), Some(0o644));
+        #[cfg(unix)]
+        assert_eq!(z.by_name("FretWright/fretwright").unwrap().unix_mode().map(|m| m & 0o777), Some(0o755));
+        fs::remove_dir_all(&tmp).unwrap();
+    }
+}

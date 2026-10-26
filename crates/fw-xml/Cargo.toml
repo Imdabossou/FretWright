@@ -9,7 +9,7 @@ rust-version.workspace = true
 [dependencies]
 thiserror.workspace = true
 bitflags = "2"
-quick-xml = "0.38"
+quick-xml = "0.41"
 
 [lints]
 workspace = true
