@@ -1,0 +1,27 @@
+/* FretWright Bass Detect — plain CSS scoped under .fretwright (no Tailwind build). */
+.fretwright { padding: 1.25rem 1.5rem 4rem; color: #e2e8f0; max-width: 1100px; margin: 0 auto; font: 14px/1.5 system-ui, sans-serif; }
+.fretwright h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 .25rem; }
+.fretwright h2 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+.fretwright .fw-sub { color: #94a3b8; margin: 0 0 1rem; max-width: 60rem; }
+.fretwright .fw-card { background: rgba(30,41,59,.55); border: 1px solid rgba(148,163,184,.18); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+.fretwright .fw-row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.fretwright .fw-spacer { flex: 1; }
+.fretwright .fw-muted { color: #94a3b8; }
+.fretwright .fw-warn { color: #facc15; margin: .75rem 0 0; }
+.fretwright .fw-input { background: rgba(15,23,42,.6); color: inherit; border: 1px solid rgba(148,163,184,.3); border-radius: 7px; padding: .4rem .6rem; min-width: 16rem; }
+.fretwright .fw-btn { background: #2563eb; color: #fff; border: 0; border-radius: 7px; padding: .4rem .8rem; font-size: .85rem; font-weight: 600; cursor: pointer; }
+.fretwright .fw-btn:hover { background: #1d4ed8; }
+.fretwright .fw-btn[disabled] { opacity: .4; cursor: not-allowed; }
+.fretwright .fw-btn.secondary { background: rgba(148,163,184,.18); color: #e2e8f0; }
+.fretwright .fw-job { padding: .5rem .25rem; border-bottom: 1px solid rgba(148,163,184,.1); }
+.fretwright .fw-job:last-child { border-bottom: 0; }
+.fretwright .fw-name { flex: 1; min-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fretwright .fw-detail { color: #94a3b8; font-size: .85rem; }
+.fretwright .fw-error { color: #f87171; white-space: normal; }
+.fretwright .fw-pill { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; background: rgba(148,163,184,.18); }
+.fretwright .fw-pill.done { background: rgba(34,197,94,.2); color: #4ade80; }
+.fretwright .fw-pill.running { background: rgba(59,130,246,.22); color: #93c5fd; }
+.fretwright .fw-pill.queued { background: rgba(234,179,8,.2); color: #facc15; }
+.fretwright .fw-pill.failed { background: rgba(239,68,68,.2); color: #f87171; }
+.fretwright .fw-bar { height: 4px; background: rgba(148,163,184,.15); border-radius: 2px; margin-top: .4rem; overflow: hidden; }
+.fretwright .fw-bar > div { height: 100%; background: #3b82f6; transition: width .3s; }

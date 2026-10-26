@@ -1,0 +1,70 @@
+<!-- FretWright Bass Detect settings, injected into the app Settings panel. -->
+<style>
+#fw-settings label { display: block; margin: .6rem 0 .2rem; font-weight: 600; }
+#fw-settings input[type=text], #fw-settings select {
+  width: 100%; max-width: 32rem; padding: .35rem .5rem; border-radius: 6px;
+  background: rgba(15,23,42,.6); color: inherit; border: 1px solid rgba(148,163,184,.3);
+}
+#fw-settings .fw-note { font-size: .8rem; color: #94a3b8; margin: .2rem 0; }
+#fw-settings .fw-chip { display: inline-block; padding: .15rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 600; }
+#fw-settings .fw-chip.ok { background: rgba(34,197,94,.16); color: #4ade80; }
+#fw-settings .fw-chip.bad { background: rgba(239,68,68,.16); color: #f87171; }
+#fw-settings button { margin-top: .75rem; background: #2563eb; color: #fff; border: 0; border-radius: 7px; padding: .4rem .8rem; font-weight: 600; cursor: pointer; }
+#fw-settings button.secondary { background: rgba(148,163,184,.2); color: inherit; }
+</style>
+<div id="fw-settings">
+  <p><span id="fw-set-status" class="fw-chip bad">checking…</span></p>
+
+  <label for="fw-set-cli">Path to <code>fretwright-cli</code></label>
+  <input type="text" id="fw-set-cli" placeholder="Leave empty to use $FRETWRIGHT_CLI or PATH">
+  <p class="fw-note">The single native binary from a FretWright release. Run
+    <code>fretwright-cli models download</code> once to fetch the beat tracker.</p>
+
+  <label for="fw-set-device">Device</label>
+  <select id="fw-set-device">
+    <option value="auto">Auto</option>
+    <option value="gpu">GPU (Vulkan, Metal or DX12)</option>
+    <option value="cpu">CPU</option>
+  </select>
+
+  <label><input type="checkbox" id="fw-set-own"> Separate the bass myself when a song has no bass stem</label>
+  <p class="fw-note">Off: songs need a bass stem from Stem Splitter first, so nothing is separated twice.
+    On: FretWright runs its own Demucs (htdemucs_ft, any GPU) for songs without one;
+    needs <code>fretwright-cli models download --all</code>.</p>
+
+  <button id="fw-set-save">Save</button>
+  <button id="fw-set-clear" class="secondary">Clear detection cache</button>
+</div>
+<script>
+(function () {
+  var API = '/api/plugins/fretwright';
+  function $(id) { return document.getElementById(id); }
+  function refresh() {
+    fetch(API + '/status').then(function (r) { return r.json(); }).then(function (s) {
+      $('fw-set-cli').value = s.config.cli_path || '';
+      $('fw-set-device').value = s.config.device;
+      $('fw-set-own').checked = !!s.config.own_separation;
+      var chip = $('fw-set-status');
+      if (s.cli && s.cli.version) {
+        chip.className = 'fw-chip ok';
+        chip.textContent = s.cli.version + (s.cli.beat_model ? '' : ' (models not downloaded)');
+      } else {
+        chip.className = 'fw-chip bad';
+        chip.textContent = 'fretwright-cli not found';
+      }
+    });
+  }
+  $('fw-set-save').addEventListener('click', function () {
+    fetch(API + '/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cli_path: $('fw-set-cli').value, device: $('fw-set-device').value, own_separation: $('fw-set-own').checked,
+      }),
+    }).then(refresh);
+  });
+  $('fw-set-clear').addEventListener('click', function () {
+    fetch(API + '/clear_cache', { method: 'POST' });
+  });
+  refresh();
+})();
+</script>

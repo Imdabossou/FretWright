@@ -1,0 +1,43 @@
+<!-- Injected by the Host into div#plugin-fretwright.screen. -->
+<div class="fretwright">
+  <h1>Bass Detect</h1>
+  <p class="fw-sub">Writes a bass arrangement from a song's bass stem with FretWright's note networks.
+    Existing arrangements are never changed: the result is added as <strong>Bass (FretWright)</strong>,
+    ready to polish in the Song Editor.</p>
+
+  <div class="fw-card">
+    <div class="fw-row">
+      <div>
+        <span class="fw-muted">Detector</span><br>
+        <strong id="fw-cli">…</strong>
+      </div>
+      <div>
+        <span class="fw-muted">Bass source</span><br>
+        <strong id="fw-source">…</strong>
+      </div>
+      <div class="fw-spacer"></div>
+      <button class="fw-btn secondary" id="fw-open-settings">Settings</button>
+    </div>
+    <p class="fw-warn" id="fw-cli-help" hidden>
+      <code>fretwright-cli</code> was not found. Download FretWright, run
+      <code>fretwright-cli models download</code> once, then set the path in Settings.
+    </p>
+  </div>
+
+  <div class="fw-card">
+    <div class="fw-row">
+      <h2>Jobs</h2>
+    </div>
+    <div id="fw-jobs"><p class="fw-muted">Nothing yet. Pick a song below, or use
+      <em>Detect bass line</em> from a song card's menu.</p></div>
+  </div>
+
+  <div class="fw-card">
+    <div class="fw-row">
+      <h2>Songs</h2>
+      <div class="fw-spacer"></div>
+      <input id="fw-search" type="search" placeholder="Search title or artist" class="fw-input">
+    </div>
+    <div id="fw-songs"><p class="fw-muted">Loading…</p></div>
+  </div>
+</div>

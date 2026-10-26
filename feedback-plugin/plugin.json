@@ -1,0 +1,20 @@
+{
+  "id": "fretwright",
+  "name": "FretWright Bass Detect",
+  "version": "0.1.0",
+  "description": "Write a bass arrangement from a song's bass stem with FretWright's note networks.",
+  "category": "creation",
+  "minHost": "0.3.0-alpha.1",
+  "nav": {
+    "label": "Bass Detect",
+    "screen": "plugin-fretwright"
+  },
+  "screen": "screen.html",
+  "script": "screen.js",
+  "styles": "assets/plugin.css",
+  "routes": "routes.py",
+  "settings": {
+    "html": "settings.html",
+    "server_files": ["fretwright.json"]
+  }
+}
