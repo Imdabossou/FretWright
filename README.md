@@ -57,6 +57,16 @@ fretwright-cli psarc list|extract|pack ...           # archive tools
 fretwright-cli --help
 ```
 
+## feedBack plugin
+
+[`feedback-plugin/`](feedback-plugin/) is a plugin for feedBack (the
+Rocksmith-style practice app, formerly Slopsmith) that runs FretWright's bass
+detection on a song in your feedBack library and adds the result as a new bass
+arrangement. It is not part of the release downloads: copy the folder into
+feedBack's plugins folder and point it at `fretwright-cli` (see its
+[README](feedback-plugin/README.md)). The plugin is AGPL-3.0, like feedBack; the
+rest of this repository is MIT.
+
 ## What's inside
 
 | Stage | How |
@@ -87,6 +97,7 @@ crates/fw-{psarc,sng,xml,convert,improve,dd,audio}   formats, charting and audio
 crates/xtask         release packaging (cargo xtask package)
 third_party/         vendored wem and demucs-core (see PATCHES.md)
 LICENSES/            licences of the works FretWright is ported from
+feedback-plugin/     the feedBack plugin (Python, not in release bundles)
 ```
 
 ```bash

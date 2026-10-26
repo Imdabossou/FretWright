@@ -39,9 +39,11 @@ on any Vulkan, Metal or DX12 GPU) for those songs.
 
 ## Use
 
-1. Install: clone into feedBack's plugins folder as `fretwright` and restart.
+1. Install: copy (or symlink) this `feedback-plugin` folder into feedBack's plugins
+   folder as `fretwright` and restart.
    ```bash
-   cd plugins && git clone https://github.com/Imdabossou/feedBack-plugin-fretwright fretwright
+   git clone https://github.com/Imdabossou/FretWright
+   cp -r FretWright/feedback-plugin <feedBack>/plugins/fretwright
    ```
 2. Get `fretwright-cli` from a FretWright release (or build it with
    `cargo build --release -p fw-cli`), run `fretwright-cli models download` once, and
@@ -61,6 +63,7 @@ All under `/api/plugins/fretwright/`: `status`, `config` (POST), `songs`, `song`
 ## Develop
 
 ```bash
+cd feedback-plugin
 pip install pytest pyyaml
 python -m pytest -q
 ```
@@ -75,5 +78,6 @@ python -m pytest -q
 
 ## License
 
-AGPL-3.0-only, like feedBack (the repack code follows Stem Splitter's). FretWright
-itself is MIT and runs as a separate program.
+This folder is AGPL-3.0-only, like feedBack (the repack code follows Stem Splitter's);
+see [LICENSE](LICENSE). The rest of the FretWright repository is MIT, and FretWright
+runs as a separate program.
