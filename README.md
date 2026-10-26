@@ -10,6 +10,8 @@ song.mp3 ─► Demucs (bass stem, on your GPU) ─► Beat This! + note network
 
 <p align="center"><img src="assets/fretwright.png" width="128" alt="FretWright icon"></p>
 
+![The FretWright editor: detected bass notes on each string under the song's waveform, with the detection settings on the right](docs/screenshots/editor.png)
+
 ## Install
 
 Download the bundle for your system from the
@@ -42,6 +44,12 @@ run.bat             # Windows
    - right-click a beat line to make it the start of a bar
 4. **Build** tab: *Build .psarc*. The package lands in `<project>/out`; copy it
    to Rocksmith's `dlc` folder.
+
+![The Build tab: platforms, preview start and output folder](docs/screenshots/build.png)
+
+The screenshots show "Funkorama" by Kevin MacLeod ([incompetech.com](https://incompetech.com)),
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), with the
+notes exactly as FretWright detected them.
 
 The full guide is in [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
