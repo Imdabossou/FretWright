@@ -4,10 +4,15 @@
 
 1. Set the version in the workspace `Cargo.toml` (`[workspace.package] version`)
    and run `cargo build` so `Cargo.lock` follows.
-2. Commit, then tag and push: `git tag v1.0.0 && git push --tags`.
+2. Commit, merge into `main`, then tag `main` and push:
+   `git tag -a v0.2.0 -m "FretWright v0.2.0" && git push origin v0.2.0`.
+   The build fails if the tag doesn't match the `Cargo.toml` version.
 3. The `build` workflow tests everything, builds the Linux (`.tar.gz` and
    `.AppImage`), Windows (`.zip`) and macOS (`.app` in a `.zip`) bundles, and
-   publishes them as a GitHub release.
+   publishes them as a GitHub release titled `FretWright vX.Y.Z`.
+
+Versions follow [Semantic Versioning](https://semver.org). `0.x` releases are
+early access; `1.0.0` will be the first release that is ready for everyday use.
 
 Locally, `cargo xtask package` makes the bundle for the current system in
 `dist/`. Add `--with-models` for an offline bundle with `models/` inside, or

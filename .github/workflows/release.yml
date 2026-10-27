@@ -1,5 +1,5 @@
 # Tests every push; builds release bundles for Linux, Windows and macOS.
-# Push a tag like v1.0.0 to publish them as a GitHub release (the model files
+# Push a tag like v0.1.0 to publish them as a GitHub release (the model files
 # live in a separate "models-1" release, see docs/RELEASING.md).
 name: build
 
@@ -21,6 +21,11 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - name: Tag matches the Cargo.toml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          want="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          [ "$GITHUB_REF_NAME" = "$want" ] || { echo "Tag $GITHUB_REF_NAME does not match Cargo.toml ($want)"; exit 1; }
       - uses: dtolnay/rust-toolchain@stable
         with: { components: clippy }
       - name: System libraries (ALSA headers for audio output)
@@ -75,5 +80,6 @@ jobs:
         with: { path: dist, merge-multiple: true }
       - uses: softprops/action-gh-release@v2
         with:
+          name: FretWright ${{ github.ref_name }}
           files: dist/*
           generate_release_notes: true
