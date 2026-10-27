@@ -1,5 +1,7 @@
 # FretWright
 
+<img src="assets/fretwright.png" width="128" alt="FretWright icon">
+
 Turn any song into a playable **Rocksmith 2014 bass arrangement**: AI bass
 detection, a tab editor with playback, and `.psarc` building. One program,
 written in Rust: no Python, no Wwise, no Wine, no Windows tools.
@@ -7,8 +9,6 @@ written in Rust: no Python, no Wwise, no Wine, no Windows tools.
 ```
 song.mp3 ─► Demucs (bass stem, on your GPU) ─► Beat This! + note networks ─► editor ─► .psarc
 ```
-
-<p align="center"><img src="assets/fretwright.png" width="128" alt="FretWright icon"></p>
 
 ![The FretWright editor: detected bass notes on each string under the song's waveform, with the detection settings on the right](docs/screenshots/editor.png)
 
