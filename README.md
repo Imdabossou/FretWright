@@ -1,6 +1,4 @@
-# FretWright
-
-<img src="assets/fretwright.png" width="128" alt="FretWright icon">
+# <img src="assets/fretwright.png" width="40" align="center" alt=""> FretWright
 
 Turn any song into a playable **Rocksmith 2014 bass arrangement**: AI bass
 detection, a tab editor with playback, and `.psarc` building. One program,
