@@ -4,6 +4,13 @@ Turn any song into a playable **Rocksmith 2014 bass arrangement**: AI bass
 detection, a tab editor with playback, and `.psarc` building. One program,
 written in Rust: no Python, no Wwise, no Wine, no Windows tools.
 
+> **Early access (v0.x).** Everything works end to end, but the note detection is
+> only as good as its AI models, and today's are small. On songs they haven't seen,
+> they get about three in four bass notes right (73.5% average F1 on our 20-song
+> test set), and they don't detect chords, slides or bends yet. Expect to correct
+> detected charts in the editor. The plan for 1.0 is to train much larger networks
+> on far more songs; until then, version numbers stay below 1.0.
+
 ```
 song.mp3 ─► Demucs (bass stem, on your GPU) ─► Beat This! + note networks ─► editor ─► .psarc
 ```
@@ -71,7 +78,7 @@ detection on a song in your feedBack library and adds the result as a new bass
 arrangement. It is not part of the release downloads: copy the folder into
 feedBack's plugins folder and point it at `fretwright-cli` (see its
 [README](feedback-plugin/README.md)). The plugin is AGPL-3.0, like feedBack; the
-rest of this repository is MIT.
+rest of this repository is GPL-3.0-or-later.
 
 ## What's inside
 
@@ -116,7 +123,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/RELEASING.md](docs/RELEASING.md
 
 ## Licenses
 
-FretWright is MIT licensed. Parts are ports of Rocksmith2014.NET (MIT), librosa
+FretWright is free software under the [GNU General Public License v3.0 or later](LICENSE)
+(GPL-3.0-or-later). Parts are ports of Rocksmith2014.NET (MIT), librosa
 (ISC), SciPy (BSD-3-Clause) and Beat This! (MIT); see
 [LICENSES/](LICENSES/README.md). Vendored code keeps its own licence: wem (MIT
 or Apache-2.0), demucs-rs (Apache-2.0). The model weights are Demucs (Meta,

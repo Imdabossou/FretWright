@@ -79,5 +79,5 @@ python -m pytest -q
 ## License
 
 This folder is AGPL-3.0-only, like feedBack (the repack code follows Stem Splitter's);
-see [LICENSE](LICENSE). The rest of the FretWright repository is MIT, and FretWright
+see [LICENSE](LICENSE). The rest of the FretWright repository is GPL-3.0-or-later, and FretWright
 runs as a separate program.
