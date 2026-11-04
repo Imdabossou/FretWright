@@ -2935,7 +2935,7 @@ dependencies = [
 
 [[package]]
 name = "fw-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "eframe",
@@ -2955,7 +2955,7 @@ dependencies = [
 
 [[package]]
 name = "fw-audio"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rayon",
  "symphonia",
@@ -2965,7 +2965,7 @@ dependencies = [
 
 [[package]]
 name = "fw-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2984,7 +2984,7 @@ dependencies = [
 
 [[package]]
 name = "fw-convert"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fw-sng",
  "fw-xml",
@@ -2994,7 +2994,7 @@ dependencies = [
 
 [[package]]
 name = "fw-dd"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fw-xml",
  "rayon",
@@ -3003,7 +3003,7 @@ dependencies = [
 
 [[package]]
 name = "fw-detect"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fw-audio",
  "fw-models",
@@ -3015,7 +3015,7 @@ dependencies = [
 
 [[package]]
 name = "fw-eval"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fw-detect",
  "fw-project",
@@ -3024,7 +3024,7 @@ dependencies = [
 
 [[package]]
 name = "fw-improve"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fw-xml",
  "thiserror 2.0.21",
@@ -3032,7 +3032,7 @@ dependencies = [
 
 [[package]]
 name = "fw-models"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "burn",
  "burn-ndarray",
@@ -3052,7 +3052,7 @@ dependencies = [
 
 [[package]]
 name = "fw-package"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "epaint_default_fonts",
@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "fw-project"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fw-audio",
  "fw-package",
@@ -3085,7 +3085,7 @@ dependencies = [
 
 [[package]]
 name = "fw-psarc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes",
  "byteorder",
@@ -3099,7 +3099,7 @@ dependencies = [
 
 [[package]]
 name = "fw-sng"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes",
  "bitflags 2.13.2",
@@ -3110,7 +3110,7 @@ dependencies = [
 
 [[package]]
 name = "fw-xml"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bitflags 2.13.2",
  "quick-xml",
@@ -8480,7 +8480,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "flate2",
