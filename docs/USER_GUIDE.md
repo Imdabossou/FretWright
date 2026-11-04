@@ -130,11 +130,28 @@ The **Song** tab edits artist, title, album, charter, version and year, the
 tuning (changing it keeps the sounding pitches and re-frets them), *played with
 a pick*, and the album art.
 
+## Song sections
+
+Mark the song's structure (intro, verse, chorus and so on) so a package shows it and
+players can practise by section:
+
+- right-click a beat line in the chart and choose **Start a section here**, or
+- in the **Sections** tab, pick a name and press **Add at playhead**.
+
+A section runs until the next one starts, and repeats number themselves (Chorus 1,
+Chorus 2). The Sections tab lists them all: click a time to jump there, change a name,
+or remove one. Undo covers all of it, and sections follow the beat grid when you shift
+it or detect again. The names are the ones Rocksmith knows, so every package stays valid.
+
+With no sections marked, a `.psarc` gets generated `riff`/`noguitar` sections and a
+`.feedpak` a section every 8 bars. In a `.psarc` the first section starts no earlier than
+the first note. Opening an official chart brings its sections along.
+
 ## Building
 
 The **Build** tab:
 
-- **Platforms**: PC and/or Mac packages (`_p.psarc` / `_m.psarc`).
+- **Platforms** (`.psarc` only): PC and/or Mac packages (`_p.psarc` / `_m.psarc`).
 - **Preview start**: where the 28-second song-select preview starts.
   *Automatic* picks a bar line a third of the way in; *Use playhead* takes the
   current position.
@@ -144,6 +161,12 @@ The **Build** tab:
 difficulty levels, encodes the audio as Wwise Vorbis `.wem` (without Wwise),
 and packs everything. Copy the `.psarc` into Rocksmith 2014's `dlc` folder
 (custom songs need a CDLC-enabled game).
+
+**Build .feedpak** writes the same chart as a
+[feedpak](https://github.com/got-feedback/feedpak-spec), the open package format
+feedBack plays: the notes, the beat grid, your sections, the song and preview as
+Ogg Vorbis, and the album art if the project has one. The song is one audio stem
+(the full mix).
 
 Song IDs are stored in the project, so rebuilding an edited chart keeps your
 scores in the game.

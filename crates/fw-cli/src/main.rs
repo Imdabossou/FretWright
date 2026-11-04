@@ -23,8 +23,8 @@ enum Cmd {
     /// Inspect SNG charts
     #[command(subcommand)]
     Sng(SngCmd),
-    /// One step from a song to a .psarc: makes a project next to the song (or
-    /// reuses it), detects the bass line and builds the package
+    /// One step from a song to a package: makes a project next to the song (or
+    /// reuses it), detects the bass line and builds a .psarc and/or .feedpak
     Convert {
         song: PathBuf,
         /// Defaults come from the file name ("Artist - Title.mp3")
@@ -48,11 +48,15 @@ enum Cmd {
         /// Project folder (default: "<song name> (FretWright)" next to the song)
         #[arg(long)]
         project: Option<PathBuf>,
-        /// Output folder for the .psarc (default: <project>/out)
+        /// Output folder for the package (default: <project>/out)
         #[arg(long)]
         out_dir: Option<PathBuf>,
+        /// Platforms to build the .psarc for
         #[arg(long, value_delimiter = ',', default_value = "pc")]
         platform: Vec<String>,
+        /// Package formats: psarc, feedpak or both
+        #[arg(long, value_enum, value_delimiter = ',', default_value = "psarc")]
+        format: Vec<Format>,
     },
     /// Detect the bass line of a project's song (replaces its notes and beat grid)
     Detect {
@@ -175,16 +179,19 @@ enum Cmd {
         #[arg(long)]
         all: bool,
     },
-    /// Build a FretWright project into .psarc package(s)
+    /// Build a FretWright project into .psarc and/or .feedpak package(s)
     Build {
         /// Project folder (or its project file)
         project: PathBuf,
         /// Output folder (default: <project>/out)
         #[arg(long)]
         out_dir: Option<PathBuf>,
-        /// Platforms to build for
+        /// Platforms to build the .psarc for
         #[arg(long, value_delimiter = ',', default_value = "pc")]
         platform: Vec<String>,
+        /// Package formats: psarc, feedpak or both
+        #[arg(long, value_enum, value_delimiter = ',', default_value = "psarc")]
+        format: Vec<Format>,
         /// Album art to use when the project has none (not saved to the project)
         #[arg(long)]
         art: Option<PathBuf>,
@@ -224,6 +231,13 @@ enum SngCmd {
     },
 }
 
+/// A package format `build` and `convert` can write.
+#[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
+enum Format {
+    Psarc,
+    Feedpak,
+}
+
 #[derive(Subcommand)]
 enum PsarcCmd {
     /// List the entries of an archive
@@ -245,9 +259,9 @@ fn main() -> Result<()> {
         Cmd::Psarc(cmd) => psarc(cmd),
         Cmd::Sng(cmd) => sng(cmd),
         Cmd::Package { spec } => package(&spec),
-        Cmd::Build { project, out_dir, platform, art } => build(&project, out_dir.as_deref(), &platform, art),
+        Cmd::Build { project, out_dir, platform, format, art } => build(&project, out_dir.as_deref(), &platform, &format, art),
         Cmd::Detect { project, separator, snap } => detect(&project, separator, snap),
-        Cmd::Convert { song, artist, title, album, year, art, tuning, separator, project, out_dir, platform } => {
+        Cmd::Convert { song, artist, title, album, year, art, tuning, separator, project, out_dir, platform, format } => {
             let folder = project.unwrap_or_else(|| fw_project::default_folder(&song));
             if !folder.join(fw_project::PROJECT_FILE).is_file() {
                 let song = std::path::absolute(&song)?;
@@ -275,7 +289,7 @@ fn main() -> Result<()> {
                 eprintln!("using existing project {}", folder.display());
             }
             detect(&folder, separator, None)?;
-            build(&folder, out_dir.as_deref(), &platform, None)
+            build(&folder, out_dir.as_deref(), &platform, &format, None)
         }
         Cmd::Models { action, json, all } => match action.as_deref() {
             None => models(json),
@@ -434,6 +448,7 @@ fn detect(project: &std::path::Path, separator: Option<String>, snap: Option<u32
     for w in &det.warnings {
         eprintln!("note: {w}");
     }
+    p.snap_sections();
     p.save()?;
     println!("{} notes, {:.1} BPM, {:.0} s of audio", p.notes.len(), p.grid.tempo, p.duration);
     eprintln!("done in {:.1?}", t.elapsed());
@@ -497,7 +512,7 @@ fn detect_audio(audio: &std::path::Path, settings: &fw_project::DetectionSetting
     Ok(())
 }
 
-fn build(project: &std::path::Path, out_dir: Option<&std::path::Path>, platforms: &[String], art: Option<PathBuf>) -> Result<()> {
+fn build(project: &std::path::Path, out_dir: Option<&std::path::Path>, platforms: &[String], formats: &[Format], art: Option<PathBuf>) -> Result<()> {
     let t = Instant::now();
     let mut p = fw_project::Project::load(project).with_context(|| format!("opening {}", project.display()))?;
     let own_art = p.album_art.clone();
@@ -509,7 +524,13 @@ fn build(project: &std::path::Path, out_dir: Option<&std::path::Path>, platforms
         .map(|s| if s.eq_ignore_ascii_case("mac") { fw_package::Platform::Mac } else { fw_package::Platform::Pc })
         .collect();
     let progress = |msg: &str, f: f64| eprintln!("[{:5.1}%] {msg}", f * 100.0);
-    let paths = fw_project::build(&mut p, out_dir, &platforms, &progress)?;
+    let mut paths = Vec::new();
+    if formats.contains(&Format::Psarc) {
+        paths = fw_project::build(&mut p, out_dir, &platforms, &progress)?;
+    }
+    if formats.contains(&Format::Feedpak) {
+        paths.push(fw_project::build_feedpak(&mut p, out_dir, &progress)?);
+    }
     p.album_art = own_art;
     p.save()?;
     for path in paths {
@@ -585,6 +606,7 @@ fn package(spec_path: &std::path::Path) -> Result<()> {
                 tuning_pitch: a["tuningPitch"].as_f64().filter(|&x| x > 0.0).unwrap_or(440.0),
                 persistent_id: a["persistentId"].as_str().context("arrangement without persistentId")?.to_string(),
                 master_id: a["masterId"].as_i64().unwrap_or(0) as i32,
+                sections: Vec::new(),
             });
         }
         let art = s("albumArt");

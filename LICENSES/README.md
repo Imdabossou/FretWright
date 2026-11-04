@@ -17,5 +17,10 @@ Vendored code, compiled into FretWright, keeps its licence next to it in
 `third_party/` (wem: MIT or Apache-2.0; demucs-rs: Apache-2.0), and release
 bundles carry `THIRD_PARTY_LICENSES.txt` with the licence of every crate.
 
+The `.feedpak` audio is encoded by libvorbis (the aoTuV/Lancer build) and libogg,
+C libraries compiled in through the `vorbis_rs` crate. Their packages keep the
+licence texts out of `cargo metadata`'s view, so they are copied here:
+[libvorbis.txt](libvorbis.txt), [libogg.txt](libogg.txt) (both BSD-3-Clause).
+
 The loudness meter in `fw-audio` is written from ITU-R BS.1770-4. The
 resampler, the model download and the app are original.

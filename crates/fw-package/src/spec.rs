@@ -50,6 +50,8 @@ pub struct ArrangementSpec {
     /// Stable across rebuilds so the game keeps the player's stats ("8-4-4-4-12" UUID).
     pub persistent_id: String,
     pub master_id: i32,
+    /// Sections the user marked, placed over the generated ones. Empty: generated only.
+    pub sections: Vec<fw_xml::Section>,
 }
 
 impl ArrangementSpec {

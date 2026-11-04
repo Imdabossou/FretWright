@@ -15,12 +15,12 @@ fn modified(p: &Path) -> Option<SystemTime> {
 }
 
 /// True if `target` exists and is newer than `source`.
-fn fresh(target: &Path, source: &Path) -> bool {
+pub(crate) fn fresh(target: &Path, source: &Path) -> bool {
     matches!((modified(target), modified(source)), (Some(t), Some(s)) if t >= s)
 }
 
 /// Default preview: a third of the way into the song, on a bar line.
-fn default_preview_start(p: &Project) -> f64 {
+pub(crate) fn default_preview_start(p: &Project) -> f64 {
     let target = p.duration * 0.33;
     let bars: Vec<f64> = p.grid.downbeats.iter().filter_map(|&i| p.grid.beats.get(i).copied()).collect();
     let t = bars.iter().copied().min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs())).unwrap_or(target);
@@ -102,6 +102,11 @@ pub fn package_spec(p: &mut Project, progress: BuildProgress) -> Result<PackageS
             tuning_pitch: p.tuning_pitch,
             persistent_id: p.identity.persistent_id.clone(),
             master_id: p.identity.master_id,
+            sections: p
+                .numbered_sections()
+                .into_iter()
+                .map(|(s, number)| fw_xml::Section { name: s.name.clone(), number: number as i16, time: (s.time * 1000.0).round() as i32 })
+                .collect(),
         }],
         builder_name: format!("FretWright {}", env!("CARGO_PKG_VERSION")),
         app_id: 248_750,

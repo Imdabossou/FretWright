@@ -148,7 +148,8 @@ def _note(n: dict) -> dict:
     start, end = float(n["start"]), float(n["end"])
     dur = max(0.0, end - start)
     slide, slide_unpitched = int(n.get("slide_to", -1)), int(n.get("slide_unpitch_to", -1))
-    bend = float(n.get("bend", 0.0))
+    # FretWright stores bends in whole steps, a feedpak in semitones (spec §6.2.1).
+    bend = float(n.get("bend", 0.0)) * 2.0
     # Same rule as FretWright's .psarc build: short notes are plain hits.
     sustained = dur >= 0.2 or slide >= 0 or slide_unpitched >= 0 or bend > 0 or n.get("link_next")
     out = {"t": round(start, 3), "s": int(n["string"]), "f": int(n["fret"]),

@@ -88,6 +88,9 @@ pub fn project_from_arrangement(arr: &InstrumentalArrangement, folder: impl Into
     let beats: Vec<f64> = arr.ebeats.iter().map(|b| b.time as f64 / 1000.0).collect();
     let downbeats = arr.ebeats.iter().enumerate().filter(|(_, b)| b.measure >= 0).map(|(i, _)| i).collect();
     p.grid = BeatGrid { beats, downbeats, tempo: if m.average_tempo > 0.0 { m.average_tempo as f64 } else { 120.0 } };
+    for s in &arr.sections {
+        p.set_section(s.time as f64 / 1000.0, &s.name);
+    }
     p
 }
 
@@ -257,6 +260,9 @@ pub fn project_from_sng(sng: &fw_sng::Sng, manifest: Option<&serde_json::Value>,
         downbeats: sng.beats.iter().enumerate().filter(|(_, b)| b.mask.contains(fw_sng::BeatMask::FIRST_BEAT_OF_MEASURE)).map(|(i, _)| i).collect(),
         tempo: attrs.and_then(|a| a["SongAverageTempo"].as_f64()).filter(|t| *t > 0.0).unwrap_or(120.0),
     };
+    for s in &sng.sections {
+        p.set_section(s.start_time as f64, &s.name.to_string());
+    }
     p
 }
 

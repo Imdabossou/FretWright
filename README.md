@@ -1,7 +1,7 @@
 # <img src="assets/fretwright.png" width="36" align="top" alt=""> FretWright
 
 Turn any song into a playable **Rocksmith 2014 bass arrangement**: AI bass
-detection, a tab editor with playback, and `.psarc` building. One program,
+detection, a tab editor with playback, and `.psarc` and `.feedpak` building. One program,
 written in Rust: no Python, no Wwise, no Wine, no Windows tools.
 
 > **Early access (v0.x).** Everything works end to end, but the note detection is
@@ -12,7 +12,7 @@ written in Rust: no Python, no Wwise, no Wine, no Windows tools.
 > on far more songs; until then, version numbers stay below 1.0.
 
 ```
-song.mp3 ─► Demucs (bass stem, on your GPU) ─► Beat This! + note networks ─► editor ─► .psarc
+song.mp3 ─► Demucs (bass stem, on your GPU) ─► Beat This! + note networks ─► editor ─► .psarc / .feedpak
 ```
 
 ![The FretWright editor: detected bass notes on each string under the song's waveform, with the detection settings on the right](docs/screenshots/editor.png)
@@ -47,8 +47,9 @@ run.bat             # Windows
    - H P M A S toggle hammer-on, pull-off, mute, accent, slide
    - Delete removes, Ctrl+Z undoes, Space plays
    - right-click a beat line to make it the start of a bar
-4. **Build** tab: *Build .psarc*. The package lands in `<project>/out`; copy it
-   to Rocksmith's `dlc` folder.
+4. **Build** tab: *Build .psarc* or *Build .feedpak*. The package lands in
+   `<project>/out`; copy a `.psarc` to Rocksmith's `dlc` folder, or a `.feedpak`
+   ([an open format](https://github.com/got-feedback/feedpak-spec)) to your feedBack library.
 
 ![The Build tab: platforms, preview start and output folder](docs/screenshots/build.png)
 
@@ -65,6 +66,7 @@ fretwright-cli convert "Artist - Song.mp3"           # song to .psarc in one ste
 fretwright-cli convert song.flac --art cover.jpg --tuning "Drop D" --platform pc,mac
 fretwright-cli detect <project>                      # re-run detection on a project
 fretwright-cli build <project>                       # build a project's .psarc
+fretwright-cli build <project> --format feedpak      # or a .feedpak (psarc,feedpak for both)
 fretwright-cli models download [--all]               # fetch the AI models
 fretwright-cli psarc list|extract|pack ...           # archive tools
 fretwright-cli --help
@@ -89,7 +91,7 @@ rest of this repository is GPL-3.0-or-later.
 | Notes | two small neural networks trained on official charts (note starts, pitch), fused with spectral-flux onsets; harmonic and pYIN pitch remain as alternatives; a string model picks strings by sound, then a string/fret optimiser |
 | Charting | phrases, sections and dynamic difficulty, ported from [Rocksmith2014.NET](https://github.com/iminashi/Rocksmith2014.NET) |
 | Audio | Wwise 2013 Vorbis `.wem` via [rabbit-smith/wem](https://github.com/rabbit-smith/wem), so Wwise is not needed |
-| Packaging | SNG, manifests, sound banks and encrypted PSARC, written from scratch in Rust |
+| Packaging | SNG, manifests, sound banks and encrypted PSARC, written from scratch in Rust; `.feedpak` (Ogg Vorbis audio through libvorbis/aoTuV) |
 
 Parts of FretWright are Rust ports of these projects, each checked against
 the original (PyTorch, librosa, Rocksmith2014.NET); the credits are in

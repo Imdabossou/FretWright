@@ -52,6 +52,7 @@ use fw_project::guess_metadata;
 enum Tab {
     Song,
     Detection,
+    Sections,
     Build,
 }
 
@@ -152,6 +153,8 @@ pub struct App {
     editor: Editor,
     player: Player,
     tab: Tab,
+    /// The name the next section added at the playhead gets.
+    new_section: &'static str,
     build_pc: bool,
     build_mac: bool,
     out_dir: String,
@@ -186,6 +189,7 @@ impl App {
             editor: Editor::default(),
             player: Player::new(),
             tab: Tab::Detection,
+            new_section: "verse",
             build_pc: true,
             build_mac: false,
             out_dir: String::new(),
@@ -381,6 +385,7 @@ impl App {
         if let Some(p) = &mut self.project {
             self.history.push(p);
             p.grid.beats.iter_mut().for_each(|b| *b = (*b + d).max(0.0));
+            p.sections.iter_mut().for_each(|s| s.time = (s.time + d).max(0.0));
             self.chart_changed();
         }
     }
@@ -503,6 +508,22 @@ impl App {
         });
     }
 
+    fn run_build_feedpak(&mut self, ctx: &egui::Context) {
+        let Some(p) = &self.project else { return };
+        if p.notes.is_empty() {
+            return self.message("Nothing to build", "Detect or add some notes first.");
+        }
+        let mut p = p.clone();
+        self.save(ctx);
+        let out = (!self.out_dir.trim().is_empty()).then(|| PathBuf::from(self.out_dir.trim()));
+        self.log.push_str(&format!("Building {} - {} (.feedpak) …\n", p.metadata.artist, p.metadata.title));
+        self.tab = Tab::Build;
+        self.spawn(ctx, "Build", move |progress| {
+            let path = fw_project::build_feedpak(&mut p, out.as_deref(), &|m, f| progress(m, f)).map_err(|e| e.to_string())?;
+            Ok(Output::Build(vec![path], Box::new(p)))
+        });
+    }
+
     fn run_compare(&mut self, ctx: &egui::Context, separators: Vec<String>) {
         let Some(p) = &self.project else { return };
         let (audio, base, open, folder) = (PathBuf::from(&p.audio_path), p.detection.clone(), p.open_strings(), p.folder.clone());
@@ -546,6 +567,7 @@ impl App {
         self.history.push(p);
         p.notes = det.notes;
         p.grid = det.grid;
+        p.snap_sections();
         p.duration = det.duration;
         p.detection = settings;
         self.editor.selected.clear();
@@ -1018,13 +1040,74 @@ impl App {
         });
     }
 
+    fn sections_tab(&mut self, ui: &mut Ui) {
+        let Some(p) = &self.project else { return };
+        let mut action = None;
+        let mut seek = None;
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("new_section").selected_text(fw_project::section_label(self.new_section)).show_ui(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    for &(name, label) in fw_project::SECTION_NAMES {
+                        ui.selectable_value(&mut self.new_section, name, label);
+                    }
+                });
+            });
+            if ui.button("Add at playhead").on_hover_text("Starts a section on the beat closest to the playhead").clicked() {
+                action = Some(Action::SetSection(p.grid.nearest_beat(self.editor.playhead), self.new_section));
+            }
+        });
+        ui.add_space(6.0);
+        if p.sections.is_empty() {
+            ui.label(
+                RichText::new(
+                    "No sections yet, so builds place their own. Add one here or right-click a beat line in the chart. \
+                     A section runs until the next one starts.",
+                )
+                .weak(),
+            );
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("sections").num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+                for (k, (s, number)) in p.numbered_sections().into_iter().enumerate() {
+                    let minutes = (s.time / 60.0).floor();
+                    if ui.button(format!("{minutes:.0}:{:04.1}", s.time - minutes * 60.0)).on_hover_text("Jump here").clicked() {
+                        seek = Some(s.time);
+                    }
+                    egui::ComboBox::from_id_salt(("section", k))
+                        .selected_text(format!("{} {number}", fw_project::section_label(&s.name)))
+                        .width(170.0)
+                        .show_ui(ui, |ui| {
+                            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                                for &(name, label) in fw_project::SECTION_NAMES {
+                                    if ui.selectable_label(s.name == name, label).clicked() {
+                                        action = Some(Action::SetSection(s.time, name));
+                                    }
+                                }
+                            });
+                        });
+                    if ui.button("Remove").clicked() {
+                        action = Some(Action::RemoveSection(s.time));
+                    }
+                    ui.end_row();
+                }
+            });
+        });
+        if let Some(a) = action {
+            self.act(a);
+        }
+        if let (Some(t), Some(p)) = (seek, &self.project) {
+            self.editor.set_playhead(t, p);
+            self.player.seek(t);
+        }
+    }
+
     fn build_tab(&mut self, ui: &mut Ui) {
         let busy = self.job.is_some();
         let ctx = ui.ctx().clone();
         let playhead = self.editor.playhead;
         let Some(p) = &mut self.project else { return };
         egui::Grid::new("build").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-            ui.label("Platforms");
+            ui.label("Platforms (.psarc)");
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.build_pc, "PC");
                 ui.checkbox(&mut self.build_mac, "Mac");
@@ -1060,8 +1143,22 @@ impl App {
         });
         let out = if self.out_dir.trim().is_empty() { p.path("out") } else { PathBuf::from(self.out_dir.trim()) };
         ui.add_space(8.0);
-        if ui.add_enabled(!busy, egui::Button::new("Build .psarc").min_size(egui::vec2(ui.available_width(), 30.0))).clicked() {
+        let button = egui::vec2((ui.available_width() - ui.spacing().item_spacing.x) / 2.0, 30.0);
+        let (psarc, feedpak) = ui
+            .horizontal(|ui| {
+                let psarc = ui.add_enabled(!busy, egui::Button::new("Build .psarc").min_size(button)).clicked();
+                let feedpak = ui
+                    .add_enabled(!busy, egui::Button::new("Build .feedpak").min_size(button))
+                    .on_hover_text("An open package for feedBack and other feedpak players")
+                    .clicked();
+                (psarc, feedpak)
+            })
+            .inner;
+        if psarc {
             self.run_build(&ctx);
+        }
+        if feedpak {
+            self.run_build_feedpak(&ctx);
         }
         if ui.button("Open output folder").clicked() {
             Self::open_folder(&out);
@@ -1465,12 +1562,14 @@ impl eframe::App for App {
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.tab, Tab::Song, "Song");
                     ui.selectable_value(&mut self.tab, Tab::Detection, "Detection");
+                    ui.selectable_value(&mut self.tab, Tab::Sections, "Sections");
                     ui.selectable_value(&mut self.tab, Tab::Build, "Build");
                 });
                 ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| match self.tab {
                     Tab::Song => self.song_tab(ui),
                     Tab::Detection => self.detection_tab(ui),
+                    Tab::Sections => self.sections_tab(ui),
                     Tab::Build => self.build_tab(ui),
                 });
             });

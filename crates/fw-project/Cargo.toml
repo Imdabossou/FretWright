@@ -15,6 +15,11 @@ fw-audio = { path = "../fw-audio" }
 fw-package = { path = "../fw-package" }
 fw-psarc = { path = "../fw-psarc" }
 fw-sng = { path = "../fw-sng" }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

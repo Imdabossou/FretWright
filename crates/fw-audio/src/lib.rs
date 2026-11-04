@@ -31,6 +31,8 @@ pub enum Error {
     Decode(String),
     #[error("encoding the .wem failed: {0}")]
     Wem(String),
+    #[error("encoding the .ogg failed: {0}")]
+    Ogg(String),
     #[error("the audio is empty")]
     Empty,
 }
@@ -320,9 +322,51 @@ pub fn encode_wem(audio: &Audio) -> Result<Vec<u8>> {
     Ok(encoder.encode_pcm(&pcm).map_err(|e| Error::Wem(e.to_string()))?.data)
 }
 
+/// Encodes audio as Ogg Vorbis at about `-q:a 5`, the feedpak format's recommended quality.
+pub fn encode_ogg(audio: &Audio) -> Result<Vec<u8>> {
+    use std::num::{NonZeroU8, NonZeroU32};
+    let error = |e: vorbis_rs::VorbisError| Error::Ogg(e.to_string());
+    let rate = NonZeroU32::new(audio.sample_rate).ok_or(Error::Empty)?;
+    let channels = u8::try_from(audio.channels.len()).ok().and_then(NonZeroU8::new).ok_or(Error::Empty)?;
+    let mut out = Vec::new();
+    let mut builder = vorbis_rs::VorbisEncoderBuilder::new(rate, channels, &mut out).map_err(error)?;
+    builder.bitrate_management_strategy(vorbis_rs::VorbisBitrateManagementStrategy::QualityVbr { target_quality: 0.5 });
+    let mut encoder = builder.build().map_err(error)?;
+    const BLOCK: usize = 1 << 16;
+    for start in (0..audio.frames()).step_by(BLOCK) {
+        let end = (start + BLOCK).min(audio.frames());
+        let block: Vec<&[f32]> = audio.channels.iter().map(|c| &c[start..end]).collect();
+        encoder.encode_audio_block(&block).map_err(error)?;
+    }
+    encoder.finish().map_err(error)?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ogg_round_trip_keeps_length_and_timing() {
+        let rate = 48_000usize;
+        // silence with a burst at exactly 1 s
+        let mut x = vec![0.0f32; rate * 3];
+        for (i, s) in x[rate..rate + 480].iter_mut().enumerate() {
+            *s = (i as f32 * 0.3).sin() * 0.8;
+        }
+        let audio = Audio { sample_rate: 48_000, channels: vec![x.clone(), x] };
+        let dir = std::env::temp_dir().join(format!("fw-ogg-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.ogg");
+        std::fs::write(&path, encode_ogg(&audio).unwrap()).unwrap();
+        let back = decode(&path).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(back.sample_rate, 48_000);
+        assert_eq!(back.channels.len(), 2);
+        assert!(back.frames().abs_diff(audio.frames()) < 2048, "{} frames", back.frames());
+        let onset = back.channels[0].iter().position(|s| s.abs() > 0.1).unwrap();
+        assert!(onset.abs_diff(rate) < 240, "burst at frame {onset}, expected about {rate}");
+    }
 
     fn peak(a: &Audio) -> usize {
         a.channels[0].iter().enumerate().fold(0, |b, (i, v)| if v.abs() > a.channels[0][b].abs() { i } else { b })

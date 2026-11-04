@@ -1,6 +1,6 @@
 [package]
 name = "fw-audio"
-description = "Audio for Rocksmith 2014 packages: decoding, resampling, loudness, preview clips and Wwise-free .wem encoding"
+description = "Audio for Rocksmith 2014 packages: decoding, resampling, loudness, preview clips and Wwise-free .wem and Ogg Vorbis encoding"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,6 +10,7 @@ rust-version.workspace = true
 thiserror.workspace = true
 symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "ogg", "vorbis", "wav", "pcm", "aac", "isomp4", "alac", "adpcm"] }
 rayon.workspace = true
+vorbis_rs = { version = "0.5", default-features = false, features = ["stream-serial-rng"] }
 wem-core = { path = "../../third_party/wem/crates/wem-core", features = ["parallel"] }
 
 [lints]

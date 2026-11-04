@@ -4,6 +4,7 @@
 
 mod arrangement;
 mod build;
+mod feedpak;
 pub mod import;
 
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 pub use arrangement::to_arrangement;
 pub use build::{BuildProgress, build, package_spec};
+pub use feedpak::build_feedpak;
 
 pub const PROJECT_FILE: &str = "project.fretwright.json";
 pub const FORMAT_VERSION: u32 = 1;
@@ -31,6 +33,47 @@ pub const TUNINGS: &[(&str, [i32; 4])] = &[
     ("C# Standard", [-3, -3, -3, -3]),
     ("C Standard", [-4, -4, -4, -4]),
 ];
+
+/// Song section names as (stored name, label), the common ones first. Rocksmith only
+/// knows these names, and using them for `.feedpak` too keeps every package valid.
+pub const SECTION_NAMES: &[(&str, &str)] = &[
+    ("intro", "Intro"),
+    ("verse", "Verse"),
+    ("prechorus", "Pre Chorus"),
+    ("chorus", "Chorus"),
+    ("postchorus", "Post Chorus"),
+    ("bridge", "Bridge"),
+    ("solo", "Solo"),
+    ("riff", "Riff"),
+    ("breakdown", "Breakdown"),
+    ("interlude", "Interlude"),
+    ("outro", "Outro"),
+    ("noguitar", "No Bass"),
+    ("ambient", "Ambient"),
+    ("buildup", "Buildup"),
+    ("fadein", "Fade In"),
+    ("fadeout", "Fade Out"),
+    ("head", "Head"),
+    ("hook", "Hook"),
+    ("melody", "Melody"),
+    ("modbridge", "Modulated Bridge"),
+    ("modchorus", "Modulated Chorus"),
+    ("modverse", "Modulated Verse"),
+    ("postbrdg", "Post Bridge"),
+    ("postvs", "Post Verse"),
+    ("prebrdg", "Pre Bridge"),
+    ("preverse", "Pre Verse"),
+    ("silence", "Silence"),
+    ("tapping", "Tapping"),
+    ("transition", "Transition"),
+    ("vamp", "Vamp"),
+    ("variation", "Variation"),
+];
+
+/// The label of a section name (imported charts can carry names outside the list).
+pub fn section_label(name: &str) -> &str {
+    SECTION_NAMES.iter().find(|s| s.0 == name).map_or(name, |s| s.1)
+}
 
 /// "Artist - Title [junk].mp3" -> (artist, title)
 pub fn guess_metadata(path: &Path) -> (String, String) {
@@ -76,6 +119,9 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Section starts closer than this (seconds) are the same section.
+const SECTION_SAME_TIME: f64 = 0.001;
 
 fn default_true_one() -> f64 {
     1.0
@@ -166,6 +212,12 @@ impl Note {
         self.end - self.start
     }
 
+    /// The sustain a chart gives the note: short notes are plain hits.
+    pub fn chart_sustain(&self) -> f64 {
+        let sliding = self.slide_to >= 0 || self.slide_unpitch_to >= 0;
+        if self.duration() >= 0.2 || sliding || self.bend > 0.0 || self.link_next { self.duration() } else { 0.0 }
+    }
+
     /// Names of the techniques the note carries, in a fixed order.
     pub fn technique_names(&self) -> Vec<&'static str> {
         [
@@ -229,6 +281,20 @@ impl Default for BeatGrid {
     fn default() -> Self {
         BeatGrid { beats: Vec::new(), downbeats: Vec::new(), tempo: 120.0 }
     }
+}
+
+impl BeatGrid {
+    /// The beat closest to `t`; `t` itself when there are no beats.
+    pub fn nearest_beat(&self, t: f64) -> f64 {
+        self.beats.iter().copied().min_by(|a, b| (a - t).abs().total_cmp(&(b - t).abs())).unwrap_or(t)
+    }
+}
+
+/// A part of the song the user marked: it runs until the next section starts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SongSection {
+    pub name: String,
+    pub time: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -337,6 +403,9 @@ pub struct Project {
     pub notes: Vec<Note>,
     #[serde(default)]
     pub grid: BeatGrid,
+    /// Song sections in time order. None: builds place their own.
+    #[serde(default)]
+    pub sections: Vec<SongSection>,
     #[serde(default)]
     pub detection: DetectionSettings,
     pub identity: Identity,
@@ -371,9 +440,48 @@ impl Project {
             volume: None,
             notes: Vec::new(),
             grid: BeatGrid::default(),
+            sections: Vec::new(),
             detection: DetectionSettings::default(),
             identity: Identity::generate(),
         }
+    }
+
+    /// Starts a section at `time`, or renames the one already there.
+    pub fn set_section(&mut self, time: f64, name: &str) {
+        match self.sections.iter_mut().find(|s| (s.time - time).abs() < SECTION_SAME_TIME) {
+            Some(s) => s.name = name.to_string(),
+            None => {
+                let at = self.sections.partition_point(|s| s.time < time);
+                self.sections.insert(at, SongSection { name: name.to_string(), time });
+            }
+        }
+    }
+
+    pub fn remove_section(&mut self, time: f64) {
+        self.sections.retain(|s| (s.time - time).abs() >= SECTION_SAME_TIME);
+    }
+
+    /// Moves the sections onto the current beats, after the beat grid was replaced.
+    /// Sections landing on the same beat merge: the later one wins.
+    pub fn snap_sections(&mut self) {
+        let old = std::mem::take(&mut self.sections);
+        for s in old {
+            let time = self.grid.nearest_beat(s.time);
+            self.set_section(time, &s.name);
+        }
+    }
+
+    /// The sections with their repeat number (the second chorus is `chorus` 2).
+    pub fn numbered_sections(&self) -> Vec<(&SongSection, i32)> {
+        let mut seen = std::collections::HashMap::new();
+        self.sections
+            .iter()
+            .map(|s| {
+                let n = seen.entry(s.name.as_str()).or_insert(0);
+                *n += 1;
+                (s, *n)
+            })
+            .collect()
     }
 
     /// Open-string MIDI notes for the project's tuning.
@@ -425,6 +533,45 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sections_stay_ordered_rename_in_place_and_number_their_repeats() {
+        let mut p = Project::new("/tmp/x", "a.mp3");
+        p.set_section(20.0, "chorus");
+        p.set_section(5.0, "verse");
+        p.set_section(30.0, "chorus");
+        p.set_section(5.0, "intro");
+        let got: Vec<(&str, f64, i32)> = p.numbered_sections().iter().map(|(s, n)| (s.name.as_str(), s.time, *n)).collect();
+        assert_eq!(got, [("intro", 5.0, 1), ("chorus", 20.0, 1), ("chorus", 30.0, 2)]);
+        p.remove_section(20.0);
+        assert_eq!(p.sections.len(), 2);
+    }
+
+    #[test]
+    fn sections_snap_to_a_new_grid_and_merge() {
+        let mut p = Project::new("/tmp/x", "a.mp3");
+        p.set_section(1.1, "intro");
+        p.set_section(1.2, "verse");
+        p.set_section(3.9, "chorus");
+        p.grid.beats = vec![1.0, 2.0, 3.0, 4.0];
+        p.snap_sections();
+        let got: Vec<(&str, f64)> = p.sections.iter().map(|s| (s.name.as_str(), s.time)).collect();
+        assert_eq!(got, [("verse", 1.0), ("chorus", 4.0)]);
+    }
+
+    #[test]
+    fn older_project_files_have_no_sections() {
+        let json = r#"{"identity": {"persistent_id": "x", "master_id": 1}}"#;
+        let p: Project = serde_json::from_str(json).unwrap();
+        assert!(p.sections.is_empty());
+    }
+
+    #[test]
+    fn every_section_name_is_one_the_game_knows() {
+        for (name, _) in SECTION_NAMES {
+            assert!(fw_package::is_section_name(name), "{name}");
+        }
+    }
 
     #[test]
     fn default_folder_is_named_after_the_song() {

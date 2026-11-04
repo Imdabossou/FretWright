@@ -125,6 +125,7 @@ pub fn prepare(arr: &ArrangementSpec, part: i16) -> Result<Prepared> {
         fw_improve::fixes::fix_high_density(&mut xml);
     }
     fw_improve::generate_phrases_if_needed(&mut xml)?;
+    fw_improve::phrases::set_sections(&mut xml, &arr.sections);
     fw_improve::apply_all(&mut xml)?;
     if xml.levels.len() == 1 {
         fw_dd::generate(&fw_dd::Config::default(), &mut xml)?;
@@ -232,6 +233,11 @@ pub fn entries(spec: &PackageSpec, platform: Platform) -> Result<Vec<(String, Ve
     out.push(("toolkit.version".into(), toolkit.into_bytes()));
     out.push(("appid.appid".into(), spec.app_id.to_string().into_bytes()));
     Ok(out)
+}
+
+/// Whether the game knows this section name.
+pub fn is_section_name(name: &str) -> bool {
+    manifest::section_ui_name(name).is_ok()
 }
 
 /// The package file name (without directory) DLC Builder would use.

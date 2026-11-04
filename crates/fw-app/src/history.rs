@@ -1,8 +1,12 @@
-//! Undo/redo of chart edits (notes and beat grid snapshots).
+//! Undo/redo of chart edits (snapshots of the notes, beat grid and sections).
 
-use fw_project::{BeatGrid, Note, Project};
+use fw_project::{BeatGrid, Note, Project, SongSection};
 
-type Snapshot = (Vec<Note>, BeatGrid);
+type Snapshot = (Vec<Note>, BeatGrid, Vec<SongSection>);
+
+fn swap_in(p: &mut Project, (notes, grid, sections): Snapshot) -> Snapshot {
+    (std::mem::replace(&mut p.notes, notes), std::mem::replace(&mut p.grid, grid), std::mem::replace(&mut p.sections, sections))
+}
 
 #[derive(Default)]
 pub struct History {
@@ -15,7 +19,7 @@ const LIMIT: usize = 200;
 impl History {
     /// Records the state before an edit.
     pub fn push(&mut self, p: &Project) {
-        self.undo.push((p.notes.clone(), p.grid.clone()));
+        self.undo.push((p.notes.clone(), p.grid.clone(), p.sections.clone()));
         if self.undo.len() > LIMIT {
             self.undo.remove(0);
         }
@@ -23,23 +27,15 @@ impl History {
     }
 
     pub fn undo(&mut self, p: &mut Project) -> bool {
-        match self.undo.pop() {
-            Some((notes, grid)) => {
-                self.redo.push((std::mem::replace(&mut p.notes, notes), std::mem::replace(&mut p.grid, grid)));
-                true
-            }
-            None => false,
-        }
+        let Some(snapshot) = self.undo.pop() else { return false };
+        self.redo.push(swap_in(p, snapshot));
+        true
     }
 
     pub fn redo(&mut self, p: &mut Project) -> bool {
-        match self.redo.pop() {
-            Some((notes, grid)) => {
-                self.undo.push((std::mem::replace(&mut p.notes, notes), std::mem::replace(&mut p.grid, grid)));
-                true
-            }
-            None => false,
-        }
+        let Some(snapshot) = self.redo.pop() else { return false };
+        self.undo.push(swap_in(p, snapshot));
+        true
     }
 
     pub fn can_undo(&self) -> bool {
@@ -59,6 +55,18 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn undo_and_redo_restore_sections() {
+        let mut p = Project::new("/tmp/x", "a.mp3");
+        let mut h = History::default();
+        h.push(&p);
+        p.set_section(1.0, "verse");
+        assert!(h.undo(&mut p));
+        assert!(p.sections.is_empty());
+        assert!(h.redo(&mut p));
+        assert_eq!(p.sections.len(), 1);
+    }
 
     #[test]
     fn undo_and_redo_restore_notes() {

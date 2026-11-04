@@ -232,6 +232,9 @@ pub enum Action {
     SlideTarget(i32),
     Refret { only_selected: bool },
     SetDownbeat(usize),
+    /// Starts a section at this time, or renames the one there.
+    SetSection(f64, &'static str),
+    RemoveSection(f64),
     SelectAll,
     SelectNone,
 }
@@ -460,7 +463,7 @@ impl Editor {
     pub fn apply(&mut self, action: Action, p: &mut Project, hist: &mut History) -> bool {
         let opens = p.open_strings();
         let sel: Vec<usize> = self.selected.iter().copied().filter(|&i| i < p.notes.len()).collect();
-        let needs_sel = !matches!(action, Action::Refret { only_selected: false } | Action::SetDownbeat(_) | Action::SelectAll | Action::SelectNone);
+        let needs_sel = !matches!(action, Action::Refret { only_selected: false } | Action::SetDownbeat(_) | Action::SetSection(..) | Action::RemoveSection(_) | Action::SelectAll | Action::SelectNone);
         if needs_sel && sel.is_empty() {
             return false;
         }
@@ -612,6 +615,8 @@ impl Editor {
                 set.extend((beat..g.beats.len()).step_by(meter));
                 g.downbeats = set.into_iter().collect();
             }
+            Action::SetSection(time, name) => p.set_section(time, name),
+            Action::RemoveSection(time) => p.remove_section(time),
             Action::SelectAll | Action::SelectNone => {}
         }
         p.notes.sort_by(|a, b| a.start.total_cmp(&b.start));
@@ -861,6 +866,8 @@ impl Editor {
         let mut menu_action = None;
         let has_sel = !self.selected.is_empty();
         let menu_beat = self.menu_beat;
+        let menu_beat_time = menu_beat.and_then(|b| p.grid.beats.get(b).copied());
+        let menu_section = menu_beat_time.and_then(|t| p.sections.iter().find(|s| (s.time - t).abs() < 0.001)).map(|s| s.time);
         let all_on = |t: &Technique| has_sel && self.selected.iter().filter_map(|&i| p.notes.get(i)).all(|n| t.is_on(n));
         let common_on: Vec<bool> = Technique::COMMON.iter().map(|(t, _)| all_on(t)).collect();
         let more_on: Vec<bool> = Technique::MORE.iter().map(|(t, _)| all_on(t)).collect();
@@ -901,6 +908,23 @@ impl Editor {
                 if ui.button("Make this beat a bar line (re-count bars from here)").clicked() {
                     menu_action = Some(Action::SetDownbeat(b));
                 }
+            }
+            if let Some(time) = menu_beat_time {
+                ui.menu_button(if menu_section.is_some() { "Rename this section" } else { "Start a section here" }, |ui| {
+                    egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                        for &(name, label) in fw_project::SECTION_NAMES {
+                            if ui.button(label).clicked() {
+                                menu_action = Some(Action::SetSection(time, name));
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+            }
+            if let Some(time) = menu_section
+                && ui.button("Remove this section").clicked()
+            {
+                menu_action = Some(Action::RemoveSection(time));
             }
             if !has_sel && menu_beat.is_none() {
                 ui.label("Right-click a note or a beat line");
@@ -987,6 +1011,24 @@ impl Editor {
             for s in t0 as i64..=t1 as i64 {
                 painter.text(pos2(t2x(s as f64, self) + 2.0, rect.top() + 4.0), Align2::LEFT_TOP, format!("{s}s"), FontId::proportional(12.0), theme::dim());
             }
+        }
+
+        // sections: a line at the start and a name, which stays in view while its section does
+        let numbered = p.numbered_sections();
+        let chart_left = rect.left() + LEFT;
+        for (k, (s, number)) in numbered.iter().enumerate() {
+            let x = t2x(s.time, self);
+            if x > rect.right() || numbered.get(k + 1).is_some_and(|(next, _)| t2x(next.time, self) <= chart_left) {
+                continue;
+            }
+            if x >= chart_left {
+                painter.line_segment([pos2(x, rect.top() + RULER_H), pos2(x, bottom)], Stroke::new(1.5, theme::strong().gamma_multiply(0.7)));
+            }
+            let text = format!("{} {number}", fw_project::section_label(&s.name));
+            let galley = painter.layout_no_wrap(text, FontId::proportional(12.0), theme::bg());
+            let pill = Rect::from_min_size(pos2(x.max(chart_left), rect.top() + RULER_H + 1.0), galley.size() + vec2(8.0, 2.0));
+            painter.rect_filled(pill, CornerRadius::same(3), theme::strong());
+            painter.galley(pill.min + vec2(4.0, 1.0), galley, theme::bg());
         }
 
         // notes
@@ -1110,6 +1152,18 @@ mod tests {
             p.notes.push(n);
         }
         p
+    }
+
+    #[test]
+    fn sections_need_no_selection_and_undo() {
+        let (mut e, mut p, mut h) = (Editor::default(), project(), History::default());
+        assert!(e.apply(Action::SetSection(2.0, "verse"), &mut p, &mut h));
+        assert!(e.apply(Action::SetSection(2.0, "chorus"), &mut p, &mut h));
+        assert_eq!((p.sections.len(), p.sections[0].name.as_str()), (1, "chorus"));
+        assert!(e.apply(Action::RemoveSection(2.0), &mut p, &mut h));
+        assert!(p.sections.is_empty());
+        assert!(h.undo(&mut p));
+        assert_eq!(p.sections[0].name, "chorus");
     }
 
     #[test]

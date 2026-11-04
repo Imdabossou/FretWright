@@ -40,6 +40,12 @@ def test_arrangement_shape():
     assert "phrases" not in arr  # spec §6.7: omit, never []
 
 
+def test_bends_are_written_in_semitones():
+    assert bridge._note(_note(1.0, 2.0, 0, 5, bend=1.0))["bn"] == 2.0
+    assert bridge._note(_note(1.0, 2.0, 0, 5, bend=0.5))["bn"] == 1.0
+    assert "bn" not in bridge._note(_note(1.0, 2.0, 0, 5))
+
+
 def test_anchors_follow_frets():
     notes = [{"t": 0.0, "f": 5}, {"t": 1.0, "f": 7}, {"t": 2.0, "f": 12}, {"t": 3.0, "f": 0}, {"t": 4.0, "f": 3}]
     assert bridge._anchors(notes) == [

@@ -104,7 +104,7 @@ fn difficulties(arr: &fw_xml::InstrumentalArrangement, sng: &Sng, counts: &fw_co
     (d(counts.hard, 100.0), d(counts.medium, 50.0), d(counts.easy, 25.0))
 }
 
-fn section_ui_name(name: &str) -> Result<&'static str, Error> {
+pub(crate) fn section_ui_name(name: &str) -> Result<&'static str, Error> {
     let key: String = name.to_lowercase().chars().filter(|c| c.is_alphabetic()).collect();
     Ok(match key.as_str() {
         "fadein" => "$[34276] Fade In [1]",

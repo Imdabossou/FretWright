@@ -238,3 +238,138 @@ pub fn generate(arr: &mut Arr) -> Result<()> {
     c.add_section(arr, false, end_time);
     Ok(())
 }
+
+/// Puts the user's sections over generated phrases: each starts on a phrase (the nearest
+/// generated one moves there, or a new one is added), the first no earlier than the
+/// first note, and the end of the chart stays a `noguitar` section. Generated sections
+/// remain only before the first of the user's.
+pub fn set_sections(arr: &mut Arr, sections: &[Section]) {
+    let count = arr.phrase_iterations.len();
+    if sections.is_empty() || count < 3 {
+        return;
+    }
+    let content = arr.phrase_iterations[1].time;
+    let end = arr.phrase_iterations[count - 1].time;
+
+    let mut wanted: Vec<Section> = Vec::new();
+    for s in sections {
+        let time = s.time.max(content);
+        if time >= end {
+            continue;
+        }
+        match wanted.last_mut() {
+            Some(last) if last.time == time => last.name = s.name.clone(),
+            _ => wanted.push(Section { time, ..s.clone() }),
+        }
+    }
+    let Some(first) = wanted.first().map(|s| s.time) else { return };
+
+    // Phrase starts already spoken for by a section; the first phrase stays on the first
+    // note and the last on the end, so neither is moved.
+    let mut taken: Vec<i32> = Vec::new();
+    for s in &wanted {
+        let last = arr.phrase_iterations.len() - 1;
+        let nearest = (1..last)
+            .filter(|&i| !taken.contains(&arr.phrase_iterations[i].time))
+            .filter(|&i| i != 1 || arr.phrase_iterations[i].time == s.time)
+            .min_by_key(|&i| (arr.phrase_iterations[i].time - s.time).abs())
+            .filter(|&i| (arr.phrase_iterations[i].time - s.time).abs() < MIN_PHRASE_SEPARATION);
+        match nearest {
+            Some(i) => arr.phrase_iterations[i].time = s.time,
+            None => {
+                let at = arr.phrase_iterations.partition_point(|p| p.time < s.time);
+                let phrase_id = arr.phrases.len() as i32;
+                arr.phrases.push(Phrase { name: format!("p{phrase_id}"), max_difficulty: 0, mask: PhraseMask::empty() });
+                arr.phrase_iterations.insert(at, PhraseIteration { time: s.time, phrase_id, ..Default::default() });
+            }
+        }
+        taken.push(s.time);
+    }
+
+    let mut out: Vec<Section> = arr.sections.iter().filter(|s| s.time < first).cloned().collect();
+    out.extend(wanted);
+    out.push(Section { name: "noguitar".into(), number: 1, time: end });
+    let mut seen = std::collections::HashMap::new();
+    for s in &mut out {
+        let n = seen.entry(s.name.clone()).or_insert(0i16);
+        *n += 1;
+        s.number = *n;
+    }
+    arr.sections = out;
+}
+
+#[cfg(test)]
+mod section_tests {
+    use fw_xml::Note;
+
+    use super::*;
+
+    /// A chart with notes from 4 s to 90 s on a 0.5 s beat, phrases generated.
+    fn chart() -> Arr {
+        let ebeats = (0..200).map(|i| Ebeat { time: i * 500, measure: if i % 4 == 0 { (i / 4 + 1) as i16 } else { -1 } }).collect();
+        let notes = (0..172).map(|i| Note { time: 4000 + i * 500, ..Default::default() }).collect();
+        let mut arr = Arr { ebeats, levels: vec![Level { notes, ..Default::default() }], ..Default::default() };
+        arr.metadata.song_length = 100_000;
+        generate(&mut arr).unwrap();
+        arr
+    }
+
+    fn section(name: &str, time: i32) -> Section {
+        Section { name: name.into(), number: 0, time }
+    }
+
+    fn starts_on_a_phrase(arr: &Arr) {
+        for s in &arr.sections {
+            assert!(arr.phrase_iterations.iter().any(|p| p.time == s.time), "{} at {}", s.name, s.time);
+        }
+        assert!(arr.phrase_iterations.windows(2).all(|w| w[0].time < w[1].time), "phrases out of order");
+    }
+
+    #[test]
+    fn sections_replace_generated_ones_and_number_their_repeats() {
+        let mut arr = chart();
+        let end = arr.phrase_iterations.last().unwrap().time;
+        set_sections(&mut arr, &[section("intro", 0), section("chorus", 30_000), section("verse", 50_000), section("chorus", 70_500)]);
+        let got: Vec<(&str, i16, i32)> = arr.sections.iter().map(|s| (s.name.as_str(), s.number, s.time)).collect();
+        // the intro waits for the first note; the end of the chart stays
+        assert_eq!(got, [("intro", 1, 4000), ("chorus", 1, 30_000), ("verse", 1, 50_000), ("chorus", 2, 70_500), ("noguitar", 1, end)]);
+        starts_on_a_phrase(&arr);
+    }
+
+    #[test]
+    fn music_before_the_first_section_keeps_a_generated_one() {
+        let mut arr = chart();
+        set_sections(&mut arr, &[section("chorus", 40_000)]);
+        assert_eq!((arr.sections[0].name.as_str(), arr.sections[0].time), ("riff", 4000));
+        let chorus = arr.sections.iter().position(|s| s.name == "chorus").unwrap();
+        assert!(arr.sections[..chorus].iter().all(|s| s.time < 40_000));
+        assert_eq!(chorus, arr.sections.len() - 2);
+        starts_on_a_phrase(&arr);
+    }
+
+    #[test]
+    fn sections_past_the_end_and_doubles_are_dropped() {
+        let mut arr = chart();
+        let end = arr.phrase_iterations.last().unwrap().time;
+        set_sections(&mut arr, &[section("intro", 0), section("verse", 1000), section("outro", end + 1000)]);
+        let names: Vec<&str> = arr.sections.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["verse", "noguitar"]);
+        starts_on_a_phrase(&arr);
+    }
+
+    #[test]
+    fn close_sections_get_their_own_phrases() {
+        let mut arr = chart();
+        set_sections(&mut arr, &[section("verse", 30_000), section("chorus", 30_500), section("solo", 31_000)]);
+        starts_on_a_phrase(&arr);
+        assert_eq!(arr.sections.iter().filter(|s| s.time >= 30_000 && s.time <= 31_000).count(), 3);
+    }
+
+    #[test]
+    fn no_sections_leaves_the_chart_alone() {
+        let mut arr = chart();
+        let before = arr.sections.clone();
+        set_sections(&mut arr, &[]);
+        assert_eq!(arr.sections, before);
+    }
+}

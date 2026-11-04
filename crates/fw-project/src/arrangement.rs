@@ -11,7 +11,7 @@ fn ms(t: f64) -> i32 {
 }
 
 /// Anchors (hand positions) following the fretted notes.
-fn anchors(notes: &[&crate::Note]) -> Vec<xml::Anchor> {
+pub(crate) fn anchors(notes: &[&crate::Note]) -> Vec<xml::Anchor> {
     let mut out = Vec::new();
     let mut cur: Option<i32> = None;
     for n in notes {
@@ -107,8 +107,7 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
     let level_notes = notes
         .iter()
         .map(|n| {
-            let sliding = n.slide_to >= 0 || n.slide_unpitch_to >= 0;
-            let sustain = if n.duration() >= 0.2 || sliding || n.bend > 0.0 || n.link_next { n.duration() } else { 0.0 };
+            let sustain = n.chart_sustain();
             let mut mask = xml::NoteMask::empty();
             mask.set(xml::NoteMask::ACCENT, n.accent);
             mask.set(xml::NoteMask::HAMMER_ON, n.hammer_on);
