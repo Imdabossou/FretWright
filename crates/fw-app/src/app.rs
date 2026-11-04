@@ -144,6 +144,8 @@ enum Dialog {
 }
 
 pub struct App {
+    last_accent: Option<Color32>,
+    theme_pref: egui::ThemePreference,
     project: Option<Project>,
     dirty: bool,
     history: History,
@@ -167,8 +169,17 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>) -> App {
         style(&cc.egui_ctx);
+        crate::system_accent::start(&cc.egui_ctx);
+        let theme: String = cc.storage.and_then(|s| eframe::get_value(s, "theme")).unwrap_or_default();
+        cc.egui_ctx.set_theme(match theme.as_str() {
+            "light" => egui::ThemePreference::Light,
+            "dark" => egui::ThemePreference::Dark,
+            _ => egui::ThemePreference::System,
+        });
         let recent = cc.storage.and_then(|s| eframe::get_value(s, "recent")).unwrap_or_default();
         let mut app = App {
+            last_accent: None,
+            theme_pref: egui::ThemePreference::System,
             project: None,
             dirty: false,
             history: History::default(),
@@ -711,6 +722,15 @@ impl App {
                 }
             });
             ui.menu_button("View", |ui| {
+                ui.label("Theme");
+                let mut pref = self.theme_pref;
+                ui.radio_value(&mut pref, egui::ThemePreference::System, "Follow system");
+                ui.radio_value(&mut pref, egui::ThemePreference::Light, "Light");
+                ui.radio_value(&mut pref, egui::ThemePreference::Dark, "Dark");
+                if pref != self.theme_pref {
+                    ui.ctx().set_theme(pref);
+                }
+                ui.separator();
                 if ui.button("Zoom In").clicked() {
                     self.zoom(1.25);
                 }
@@ -848,7 +868,7 @@ impl App {
                 } else if let Some((s, until)) = &self.status
                     && ui.input(|i| i.time) < *until
                 {
-                    ui.label(RichText::new(s).color(Color32::from_rgb(0x8f, 0xd1, 0xa0)));
+                    ui.label(s.as_str());
                 }
             });
         });
@@ -1211,7 +1231,7 @@ impl App {
                         ui.end_row();
                     });
                     if !np.error.is_empty() {
-                        ui.colored_label(Color32::from_rgb(0xe0, 0x60, 0x60), &np.error);
+                        ui.colored_label(ui.visuals().error_fg_color, &np.error);
                     }
                     ui.horizontal(|ui| {
                         if ui.button("Create").clicked() {
@@ -1383,18 +1403,34 @@ fn system_check(player: &Player) -> String {
     out
 }
 
+/// Both themes' widget styles: neutral greys plus the system accent. Called again when it changes.
 fn style(ctx: &egui::Context) {
-    let mut v = egui::Visuals::dark();
-    v.panel_fill = Color32::from_rgb(0x1b, 0x1d, 0x23);
-    v.window_fill = Color32::from_rgb(0x1f, 0x22, 0x29);
-    v.extreme_bg_color = Color32::from_rgb(0x23, 0x26, 0x2e);
-    v.selection.bg_fill = Color32::from_rgb(0x3f, 0x8f, 0x63);
-    ctx.set_visuals(v);
+    let accent = crate::system_accent::get();
+    let mut dark = egui::Visuals::dark();
+    dark.panel_fill = Color32::from_gray(0x1c);
+    dark.window_fill = Color32::from_gray(0x21);
+    dark.extreme_bg_color = Color32::from_gray(0x26);
+    dark.selection.bg_fill = accent.map_or(Color32::from_gray(0x58), |c| c.gamma_multiply(0.55));
+    dark.selection.stroke.color = Color32::WHITE;
+    dark.hyperlink_color = accent.map_or(Color32::from_gray(0xe6), |c| crate::system_accent::readable(c, true));
+    ctx.set_visuals_of(egui::Theme::Dark, dark);
+    let mut light = egui::Visuals::light();
+    light.selection.bg_fill = accent.map_or(Color32::from_gray(0xc8), |c| c.gamma_multiply(0.45));
+    light.selection.stroke.color = Color32::BLACK;
+    light.hyperlink_color = accent.map_or(Color32::from_gray(0x1f), |c| crate::system_accent::readable(c, false));
+    ctx.set_visuals_of(egui::Theme::Light, light);
 }
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        let accent = crate::system_accent::get();
+        if accent != self.last_accent {
+            self.last_accent = accent;
+            style(&ctx);
+        }
+        crate::editor::theme::set_dark(ctx.theme() == egui::Theme::Dark);
+        self.theme_pref = ctx.options(|o| o.theme_preference);
         self.poll_job(&ctx);
         if let Some(peaks) = self.player.poll(self.project.as_ref()) {
             self.editor.set_peaks(peaks);
@@ -1456,6 +1492,12 @@ impl eframe::App for App {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "recent", &self.recent);
+        let theme = match self.theme_pref {
+            egui::ThemePreference::Light => "light",
+            egui::ThemePreference::Dark => "dark",
+            egui::ThemePreference::System => "",
+        };
+        eframe::set_value(storage, "theme", &theme.to_string());
     }
 }
 

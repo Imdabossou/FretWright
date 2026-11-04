@@ -11,6 +11,7 @@ mod editor;
 mod history;
 mod icon;
 mod player;
+mod system_accent;
 
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().collect();

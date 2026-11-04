@@ -72,20 +72,60 @@ const LEFT: f32 = 34.0;
 const MIN_NOTE_PX: f32 = 14.0;
 const SCROLL_H: f32 = 12.0;
 
-mod theme {
+/// Neutral greys for the chart in both themes. Strings and techniques keep their own fixed colours.
+pub mod theme {
     use eframe::egui::Color32;
-    pub const BG: Color32 = Color32::from_rgb(0x16, 0x18, 0x1d);
-    pub const LANE: Color32 = Color32::from_rgb(0x1c, 0x1f, 0x26);
-    pub const LANE_ALT: Color32 = Color32::from_rgb(0x1f, 0x23, 0x2b);
-    pub const STRING_LINE: Color32 = Color32::from_rgb(0x35, 0x3b, 0x47);
-    pub const BEAT: Color32 = Color32::from_rgb(0x2a, 0x2f, 0x39);
-    pub const BAR: Color32 = Color32::from_rgb(0x4a, 0x52, 0x63);
-    pub const SUB: Color32 = Color32::from_rgb(0x20, 0x24, 0x2c);
-    pub const DIM: Color32 = Color32::from_rgb(0x7d, 0x85, 0x94);
-    pub const WAVE: Color32 = Color32::from_rgb(0x3c, 0x6e, 0x57);
-    pub const WAVE_BG: Color32 = Color32::from_rgb(0x12, 0x14, 0x19);
-    pub const RULER: Color32 = Color32::from_rgb(0x10, 0x12, 0x16);
-    pub const RUBBER: Color32 = Color32::from_rgba_premultiplied(24, 34, 51, 50);
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static DARK: AtomicBool = AtomicBool::new(true);
+
+    /// Set once a frame from the current theme.
+    pub fn set_dark(dark: bool) {
+        DARK.store(dark, Ordering::Relaxed);
+    }
+
+    fn pick(dark: u8, light: u8) -> Color32 {
+        Color32::from_gray(if DARK.load(Ordering::Relaxed) { dark } else { light })
+    }
+
+    pub fn bg() -> Color32 { pick(0x18, 0xf4) }
+    pub fn lane() -> Color32 { pick(0x1e, 0xfb) }
+    pub fn lane_alt() -> Color32 { pick(0x22, 0xf1) }
+    pub fn string_line() -> Color32 { pick(0x3a, 0xc4) }
+    pub fn beat() -> Color32 { pick(0x2e, 0xdc) }
+    pub fn bar() -> Color32 { pick(0x50, 0x9c) }
+    pub fn sub() -> Color32 { pick(0x24, 0xe8) }
+    pub fn dim() -> Color32 { pick(0x86, 0x66) }
+    pub fn wave() -> Color32 { pick(0x62, 0xa0) }
+    pub fn wave_bg() -> Color32 { pick(0x14, 0xee) }
+    pub fn ruler() -> Color32 { pick(0x12, 0xe6) }
+    pub fn scroll_thumb() -> Color32 { pick(0x44, 0xb0) }
+    /// The selection outline and playhead: the strongest contrast against the chart.
+    pub fn strong() -> Color32 { pick(0xff, 0x10) }
+
+    /// A string's fixed colour for small text: darker on the light theme so a pale one stays legible.
+    pub fn label_color(c: Color32) -> Color32 {
+        if DARK.load(Ordering::Relaxed) {
+            c
+        } else {
+            let darker = |v: u8| (u16::from(v) * 3 / 4) as u8;
+            Color32::from_rgb(darker(c.r()), darker(c.g()), darker(c.b()))
+        }
+    }
+
+    /// The accent for highlights: the desktop's own, or monochrome if it has none.
+    pub fn accent() -> Color32 {
+        let dark = DARK.load(Ordering::Relaxed);
+        match crate::system_accent::get() {
+            Some(c) => crate::system_accent::readable(c, dark),
+            None => pick(0xe6, 0x1f),
+        }
+    }
+
+    pub fn rubber() -> Color32 {
+        let c = accent();
+        Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 50)
+    }
 }
 
 pub mod mark {
@@ -601,10 +641,10 @@ impl Editor {
         let (rect, scroll_rect) = full.split_top_bottom_at_y(full.bottom() - SCROLL_H);
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         let painter = ui.painter_at(full);
-        painter.rect_filled(full, 0.0, theme::BG);
+        painter.rect_filled(full, 0.0, theme::bg());
         self.width = rect.width();
         let Some(p) = project else {
-            painter.text(rect.center(), Align2::CENTER_CENTER, "Create or open a project to start  (File > New Project)", FontId::proportional(15.0), theme::DIM);
+            painter.text(rect.center(), Align2::CENTER_CENTER, "Create or open a project to start  (File > New Project)", FontId::proportional(15.0), theme::dim());
             return ev;
         };
         if resp.clicked() || resp.drag_started() || resp.secondary_clicked() {
@@ -891,13 +931,13 @@ impl Editor {
         for s in 0..4 {
             let y = lane_y(s);
             let lane = Rect::from_min_size(pos2(rect.left(), y), vec2(rect.width(), lane_h));
-            painter.rect_filled(lane, 0.0, if s % 2 == 1 { theme::LANE } else { theme::LANE_ALT });
-            painter.line_segment([pos2(rect.left() + LEFT, y + lane_h / 2.0), pos2(rect.right(), y + lane_h / 2.0)], Stroke::new(1.0, theme::STRING_LINE));
+            painter.rect_filled(lane, 0.0, if s % 2 == 1 { theme::lane() } else { theme::lane_alt() });
+            painter.line_segment([pos2(rect.left() + LEFT, y + lane_h / 2.0), pos2(rect.right(), y + lane_h / 2.0)], Stroke::new(1.0, theme::string_line()));
         }
 
         // waveform
         let wave = Rect::from_min_size(pos2(rect.left(), rect.top() + RULER_H), vec2(rect.width(), WAVE_H));
-        painter.rect_filled(wave, 0.0, theme::WAVE_BG);
+        painter.rect_filled(wave, 0.0, theme::wave_bg());
         if let Some((peaks, prate)) = &self.peaks {
             let mid = wave.center().y;
             let mut x = rect.left() + LEFT;
@@ -908,7 +948,7 @@ impl Editor {
                 let v = peaks.get(a.min(peaks.len())..b.min(peaks.len())).map_or(0.0, |w| w.iter().copied().fold(0.0, f32::max));
                 if v > 0.0 {
                     let h = v * (WAVE_H / 2.0 - 3.0);
-                    painter.line_segment([pos2(x, mid - h), pos2(x, mid + h)], Stroke::new(2.0, theme::WAVE));
+                    painter.line_segment([pos2(x, mid - h), pos2(x, mid + h)], Stroke::new(2.0, theme::wave()));
                 }
                 x += 2.0;
             }
@@ -921,11 +961,11 @@ impl Editor {
             let b = self.subs.partition_point(|&g| g <= t1);
             for &t in &self.subs[a..b] {
                 let x = t2x(t, self);
-                painter.line_segment([pos2(x, lanes_top), pos2(x, bottom)], Stroke::new(1.0, theme::SUB));
+                painter.line_segment([pos2(x, lanes_top), pos2(x, bottom)], Stroke::new(1.0, theme::sub()));
             }
         }
         let ruler = Rect::from_min_size(rect.min, vec2(rect.width(), RULER_H));
-        painter.rect_filled(ruler, 0.0, theme::RULER);
+        painter.rect_filled(ruler, 0.0, theme::ruler());
         let beats = &p.grid.beats;
         let downs: HashSet<usize> = p.grid.downbeats.iter().copied().collect();
         let bar_no: std::collections::HashMap<usize, usize> = p.grid.downbeats.iter().enumerate().map(|(k, &i)| (i, k + 1)).collect();
@@ -938,14 +978,14 @@ impl Editor {
             }
             let is_bar = downs.contains(&i);
             let top = if is_bar { rect.top() + RULER_H } else { lanes_top };
-            painter.line_segment([pos2(x, top), pos2(x, bottom)], Stroke::new(if is_bar { 1.4 } else { 1.0 }, if is_bar { theme::BAR } else { theme::BEAT }));
+            painter.line_segment([pos2(x, top), pos2(x, bottom)], Stroke::new(if is_bar { 1.4 } else { 1.0 }, if is_bar { theme::bar() } else { theme::beat() }));
             if let Some(n) = bar_no.get(&i) {
-                painter.text(pos2(x + 3.0, rect.top() + 4.0), Align2::LEFT_TOP, n.to_string(), FontId::proportional(12.0), theme::DIM);
+                painter.text(pos2(x + 3.0, rect.top() + 4.0), Align2::LEFT_TOP, n.to_string(), FontId::proportional(12.0), theme::dim());
             }
         }
         if beats.is_empty() {
             for s in t0 as i64..=t1 as i64 {
-                painter.text(pos2(t2x(s as f64, self) + 2.0, rect.top() + 4.0), Align2::LEFT_TOP, format!("{s}s"), FontId::proportional(12.0), theme::DIM);
+                painter.text(pos2(t2x(s as f64, self) + 2.0, rect.top() + 4.0), Align2::LEFT_TOP, format!("{s}s"), FontId::proportional(12.0), theme::dim());
             }
         }
 
@@ -969,7 +1009,7 @@ impl Editor {
             let head = Rect::from_min_size(r.min, vec2(r.width().min(22.0), r.height()));
             painter.rect_filled(head, CornerRadius::same(4), col);
             if self.selected.contains(&i) {
-                painter.rect_stroke(r.expand(1.0), CornerRadius::same(5), Stroke::new(2.0, Color32::WHITE), StrokeKind::Outside);
+                painter.rect_stroke(r.expand(1.0), CornerRadius::same(5), Stroke::new(2.0, theme::strong()), StrokeKind::Outside);
             }
             let label = if n.mute { "X".to_string() } else { n.fret.to_string() };
             painter.text(head.center(), Align2::CENTER_CENTER, label, FontId::proportional(13.0), Color32::from_rgb(0x11, 0x11, 0x11));
@@ -977,7 +1017,7 @@ impl Editor {
         }
 
         // string names
-        painter.rect_filled(Rect::from_min_size(pos2(rect.left(), lanes_top), vec2(LEFT - 2.0, 4.0 * lane_h)), 0.0, theme::BG);
+        painter.rect_filled(Rect::from_min_size(pos2(rect.left(), lanes_top), vec2(LEFT - 2.0, 4.0 * lane_h)), 0.0, theme::bg());
         let opens = p.open_strings();
         for s in 0..4 {
             painter.text(
@@ -985,25 +1025,25 @@ impl Editor {
                 Align2::CENTER_CENTER,
                 note_name(opens[s as usize], false),
                 FontId::proportional(14.0),
-                STRING_COLORS[s as usize],
+                theme::label_color(STRING_COLORS[s as usize]),
             );
         }
 
         // playhead
         let x = t2x(self.playhead, self);
         if x >= rect.left() + LEFT && x <= rect.right() {
-            painter.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.5, Color32::WHITE));
+            painter.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.5, theme::strong()));
         }
 
         if let Some(Drag::Rubber { origin, pos, .. }) = &self.drag {
             let r = Rect::from_two_pos(*origin, *pos);
-            painter.rect_filled(r, 0.0, theme::RUBBER);
-            painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::from_rgb(120, 170, 255)), StrokeKind::Inside);
+            painter.rect_filled(r, 0.0, theme::rubber());
+            painter.rect_stroke(r, 0.0, Stroke::new(1.0, theme::accent()), StrokeKind::Inside);
         }
 
         // scrollbar
-        painter.rect_filled(scroll_rect, 0.0, theme::RULER);
-        painter.rect_filled(thumb(self), CornerRadius::same(4), Color32::from_rgb(0x3c, 0x42, 0x50));
+        painter.rect_filled(scroll_rect, 0.0, theme::ruler());
+        painter.rect_filled(thumb(self), CornerRadius::same(4), theme::scroll_thumb());
 
         if self.drag.is_some() {
             ui.ctx().request_repaint();
