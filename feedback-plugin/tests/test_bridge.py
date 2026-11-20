@@ -50,9 +50,18 @@ def test_anchors_follow_frets():
     notes = [{"t": 0.0, "f": 5}, {"t": 1.0, "f": 7}, {"t": 2.0, "f": 12}, {"t": 3.0, "f": 0}, {"t": 4.0, "f": 3}]
     assert bridge._anchors(notes) == [
         {"time": 0.0, "fret": 5, "width": 4},
-        {"time": 2.0, "fret": 11, "width": 4},
+        {"time": 2.0, "fret": 9, "width": 4},
         {"time": 4.0, "fret": 3, "width": 4},
     ]
+
+
+def test_anchors_hold_still_over_a_riff():
+    # Starts on 3 then dips to 1: one position from fret 1, not a flip each time.
+    riff = [{"t": float(i), "f": f} for i, f in enumerate([3, 3, 1, 3, 2, 1, 3])]
+    assert bridge._anchors(riff) == [{"time": 0.0, "fret": 1, "width": 4}]
+    # 1-3-5 is one stretched position.
+    stretch = [{"t": float(i), "f": f} for i, f in enumerate([1, 3, 5, 3, 1, 5, 3])]
+    assert bridge._anchors(stretch) == [{"time": 0.0, "fret": 1, "width": 5}]
 
 
 def test_tuning_from_existing_bass():

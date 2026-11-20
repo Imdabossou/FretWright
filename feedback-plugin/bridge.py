@@ -121,15 +121,34 @@ def open_strings(tuning: list[int]) -> list[int]:
 # ── detection -> arrangement ────────────────────────────────────────────────
 
 def _anchors(notes: list[dict]) -> list[dict]:
-    """Hand positions following the fretted notes (FretWright's own rule)."""
-    out: list[dict] = []
-    cur: int | None = None
+    """Hand positions following the fretted notes (FretWright's own rule).
+
+    The hand stays put while the notes fit in its window; when one falls
+    outside, it moves by the smallest shift that covers the whole run of notes
+    coming up, so a riff over frets 1-3 never flips between windows. A run
+    that needs a five-fret stretch gets a five-fret window rather than a jump.
+    """
+    ev = []
     for n in notes:
-        fret = n["f"]
-        if fret == 0 or (cur is not None and cur <= fret <= cur + 3):
+        if n["f"] <= 0:
             continue
-        cur = max(1, fret - 1) if cur is not None and fret > cur + 3 else max(1, fret)
-        out.append({"time": n["t"], "fret": cur, "width": 4})
+        end = n.get("sl", -1) if n.get("sl", -1) > 0 else n["f"]
+        ev.append((n["t"], min(n["f"], end), max(n["f"], end)))
+    out: list[dict] = []
+    cur: tuple[int, int] | None = None  # (first fret, width)
+    for i, (t, lo, hi) in enumerate(ev):
+        if cur is not None and lo >= cur[0] and hi < cur[0] + cur[1]:
+            continue
+        limit = max(5, hi - lo + 1)
+        mn, mx = lo, hi
+        for _, l, h in ev[i + 1:]:
+            if max(h, mx) - min(l, mn) + 1 > limit:
+                break
+            mn, mx = min(mn, l), max(mx, h)
+        width = max(4, mx - mn + 1)
+        fret = mx - width + 1 if cur is not None and mx > cur[0] else mn
+        cur = (max(1, fret), width)
+        out.append({"time": t, "fret": cur[0], "width": min(width, 24)})
     return out or [{"time": 0.0, "fret": 1, "width": 4}]
 
 

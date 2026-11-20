@@ -10,28 +10,60 @@ fn ms(t: f64) -> i32 {
     xml::time::parse(&format!("{t:.3}")).unwrap_or(0)
 }
 
-/// Anchors (hand positions) following the fretted notes.
+/// Anchors (hand positions) following the fretted notes. The hand stays put
+/// while the notes fit in its four frets; when one falls outside, it moves by
+/// the smallest shift that covers the whole run of notes coming up (looking
+/// ahead, so a riff over frets 1-3 never flips between windows). A run that
+/// needs a five-fret stretch gets a five-fret window rather than a jump.
 pub(crate) fn anchors(notes: &[&crate::Note]) -> Vec<xml::Anchor> {
+    const W: i32 = 4;
+    const STRETCH: i32 = 5;
+    // (start, lowest fret, highest fret) of every fretted note, slides included.
+    let ev: Vec<(f64, i32, i32)> = notes
+        .iter()
+        .filter(|n| n.fret > 0)
+        .map(|n| {
+            let end = if n.slide_to > 0 { n.slide_to } else { n.fret };
+            (n.start, n.fret.min(end), n.fret.max(end))
+        })
+        .collect();
     let mut out = Vec::new();
-    let mut cur: Option<i32> = None;
-    for n in notes {
-        if n.fret == 0 {
+    let mut cur: Option<(i32, i32)> = None; // (first fret, width)
+    for (i, &(t, lo, hi)) in ev.iter().enumerate() {
+        if let Some((f, w)) = cur
+            && lo >= f
+            && hi < f + w
+        {
             continue;
         }
-        match cur {
-            Some(c) if n.fret >= c && n.fret <= c + 3 => {}
-            _ => {
-                let fret = match cur {
-                    Some(c) if n.fret > c + 3 => (n.fret - 1).max(1),
-                    _ => n.fret.max(1),
-                };
-                cur = Some(fret);
-                out.push(xml::Anchor { time: ms(n.start), fret: fret as i8, width: 4 });
+        let limit = STRETCH.max(hi - lo + 1);
+        let (mut mn, mut mx) = (lo, hi);
+        for &(_, l, h) in &ev[i + 1..] {
+            if h.max(mx) - l.min(mn) + 1 > limit {
+                break;
             }
+            mn = mn.min(l);
+            mx = mx.max(h);
         }
+        let width = (mx - mn + 1).max(W);
+        let fret = match cur {
+            Some((f, _)) if mx > f => mx - width + 1,
+            _ => mn,
+        }
+        .max(1);
+        cur = Some((fret, width));
+        out.push(xml::Anchor {
+            time: ms(t),
+            fret: fret as i8,
+            width: width.min(24) as i8,
+        });
     }
     if out.is_empty() {
-        out.push(xml::Anchor { time: 0, fret: 1, width: 4 });
+        out.push(xml::Anchor {
+            time: 0,
+            fret: 1,
+            width: 4,
+        });
     }
     out
 }
@@ -40,7 +72,11 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
     let md = &p.metadata;
     let mut notes: Vec<&crate::Note> = p.notes.iter().collect();
     notes.sort_by(|a, b| a.start.total_cmp(&b.start));
-    let beats = if p.grid.beats.is_empty() { vec![0.0] } else { p.grid.beats.clone() };
+    let beats = if p.grid.beats.is_empty() {
+        vec![0.0]
+    } else {
+        p.grid.beats.clone()
+    };
     let first_beat = beats[0];
     let last_beat = *beats.last().unwrap_or(&0.0);
     let song_len = p.duration.max(last_beat) + 0.5;
@@ -75,7 +111,11 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
         *t = o as i16;
     }
     let metadata = xml::MetaData {
-        title: if md.title.is_empty() { "Untitled".into() } else { md.title.clone() },
+        title: if md.title.is_empty() {
+            "Untitled".into()
+        } else {
+            md.title.clone()
+        },
         arrangement: "Bass".into(),
         part: 1,
         song_length: ms(song_len),
@@ -100,7 +140,10 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
             } else {
                 -1
             };
-            xml::Ebeat { time: ms(t), measure }
+            xml::Ebeat {
+                time: ms(t),
+                measure,
+            }
         })
         .collect();
 
@@ -123,8 +166,14 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
                 // up to the bend over the first part of the note, held after that
                 let up = (sustain * 0.25 * 1000.0).round() as i32;
                 vec![
-                    xml::BendValue { time: ms(n.start) + up.max(1), step: n.bend },
-                    xml::BendValue { time: ms(n.start) + ms(sustain).max(2) - 1, step: n.bend },
+                    xml::BendValue {
+                        time: ms(n.start) + up.max(1),
+                        step: n.bend,
+                    },
+                    xml::BendValue {
+                        time: ms(n.start) + ms(sustain).max(2) - 1,
+                        step: n.bend,
+                    },
                 ]
             });
             xml::Note {
@@ -144,8 +193,15 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
         })
         .collect();
 
-    let phrase = |name: &str| xml::Phrase { name: name.into(), ..Default::default() };
-    let pi = |t: f64, id: i32| xml::PhraseIteration { time: ms(t), phrase_id: id, ..Default::default() };
+    let phrase = |name: &str| xml::Phrase {
+        name: name.into(),
+        ..Default::default()
+    };
+    let pi = |t: f64, id: i32| xml::PhraseIteration {
+        time: ms(t),
+        phrase_id: id,
+        ..Default::default()
+    };
     InstrumentalArrangement {
         version: 7,
         metadata,
@@ -154,12 +210,26 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
         linked_diffs: Some(Vec::new()),
         phrase_properties: Some(Vec::new()),
         ebeats,
-        tones: xml::ToneInfo { base: Some("Default_Bass".into()), ..Default::default() },
+        tones: xml::ToneInfo {
+            base: Some("Default_Bass".into()),
+            ..Default::default()
+        },
         sections: vec![
-            xml::Section { name: "intro".into(), number: 1, time: ms(first_beat) },
-            xml::Section { name: "noguitar".into(), number: 1, time: ms(end_time) },
+            xml::Section {
+                name: "intro".into(),
+                number: 1,
+                time: ms(first_beat),
+            },
+            xml::Section {
+                name: "noguitar".into(),
+                number: 1,
+                time: ms(end_time),
+            },
         ],
-        events: vec![xml::Event { time: ms(end_time), code: "END".into() }],
+        events: vec![xml::Event {
+            time: ms(end_time),
+            code: "END".into(),
+        }],
         levels: vec![xml::Level {
             difficulty: 0,
             notes: level_notes,
@@ -167,5 +237,75 @@ pub fn to_arrangement(p: &Project) -> InstrumentalArrangement {
             ..Default::default()
         }],
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::*;
+    use crate::Note;
+
+    fn fretted(frets: &[(f64, i32)]) -> Vec<Note> {
+        frets
+            .iter()
+            .map(|&(t, f)| {
+                let mut n = Note::new(t, t + 0.1, 40 + f);
+                n.fret = f;
+                n
+            })
+            .collect()
+    }
+
+    fn frets(notes: &[Note]) -> Vec<(i32, i8)> {
+        let refs: Vec<&Note> = notes.iter().collect();
+        anchors(&refs).iter().map(|a| (a.time, a.fret)).collect()
+    }
+
+    #[test]
+    fn riff_within_four_frets_keeps_one_position() {
+        // Starts on 3 then dips to 1: the look-ahead sees 1-3 and settles on 1.
+        let n = fretted(&[
+            (1.0, 3),
+            (1.5, 3),
+            (2.0, 1),
+            (2.5, 3),
+            (3.0, 2),
+            (3.5, 1),
+            (4.0, 3),
+        ]);
+        assert_eq!(frets(&n), vec![(1000, 1)]);
+    }
+
+    #[test]
+    fn riff_over_five_frets_does_not_flip() {
+        // 1-3-5 repeated: the old rule moved to 4 on every 5 and back to 1;
+        // it is one stretched position.
+        let n = fretted(&[
+            (1.0, 1),
+            (1.5, 3),
+            (2.0, 5),
+            (2.5, 3),
+            (3.0, 1),
+            (3.5, 5),
+            (4.0, 3),
+        ]);
+        let a = frets(&n);
+        assert_eq!(a, vec![(1000, 1)]);
+        let refs: Vec<&Note> = n.iter().collect();
+        assert_eq!(anchors(&refs)[0].width, 5);
+    }
+
+    #[test]
+    fn moves_by_the_smallest_shift() {
+        let n = fretted(&[
+            (1.0, 1),
+            (1.5, 4),
+            (2.0, 6),
+            (2.5, 3),
+            (3.0, 12),
+            (3.5, 10),
+            (4.0, 0),
+        ]);
+        assert_eq!(frets(&n), vec![(1000, 1), (2000, 3), (3000, 9)]);
     }
 }
