@@ -1033,8 +1033,7 @@ impl Editor {
 
         // notes
         let start_from = p.notes.partition_point(|n| n.start < t0 - 10.0);
-        for i in start_from..p.notes.len() {
-            let n = &p.notes[i];
+        for (i, n) in p.notes.iter().enumerate().skip(start_from) {
             if n.start > t1 {
                 break;
             }

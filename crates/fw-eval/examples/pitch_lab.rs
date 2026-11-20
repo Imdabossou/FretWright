@@ -194,9 +194,9 @@ fn main() {
         for e in &evs {
             let (a, b) = (((e.start + 0.10) / ft) as usize, (e.end / ft) as usize);
             let mut votes = std::collections::BTreeMap::new();
-            for i in a..b.min(p.f0.len()) {
-                if !p.f0[i].is_nan() {
-                    *votes.entry((notes::hz_to_midi(p.f0[i]) - tuning).round() as i32).or_insert(0) += 1;
+            for &f in p.f0.get(a..b.min(p.f0.len())).unwrap_or(&[]) {
+                if !f.is_nan() {
+                    *votes.entry((notes::hz_to_midi(f) - tuning).round() as i32).or_insert(0) += 1;
                 }
             }
             let got = votes.iter().max_by_key(|(_, c)| **c).map_or(-100, |(m, _)| *m);
