@@ -100,8 +100,8 @@ pub fn placeholder(artist: &str, title: &str) -> image::RgbaImage {
                     let (px, py) = (b.min.x as i32 + gx as i32, b.min.y as i32 + gy as i32);
                     if (0..SIZE as i32).contains(&px) && (0..SIZE as i32).contains(&py) {
                         let p = img.get_pixel_mut(px as u32, py as u32);
-                        for k in 0..3 {
-                            p.0[k] = (p.0[k] as f32 + (230.0 - p.0[k] as f32) * cov.min(1.0)) as u8;
+                        for c in &mut p.0[..3] {
+                            *c = (*c as f32 + (230.0 - *c as f32) * cov.min(1.0)) as u8;
                         }
                     }
                 });
