@@ -1,138 +1,36 @@
 # <img src="assets/fretwright.png" width="36" align="top" alt=""> FretWright
 
-Turn any song into a playable **Rocksmith 2014 bass arrangement**: AI bass
-detection, a tab editor with playback, and `.psarc` and `.feedpak` building. One program,
-written in Rust: no Python, no Wwise, no Wine, no Windows tools.
+**Turn any song into a playable Rocksmith 2014 bass arrangement.**
 
-> **Early access (v0.x).** Everything works end to end, but the note detection is
-> only as good as its AI models, and today's are small. On songs they haven't seen,
-> they get about three in four bass notes right (73.5% average F1 on our 20-song
-> test set), and they don't detect chords, slides or bends yet. Expect to correct
-> detected charts in the editor. The plan for 1.0 is to train much larger networks
-> on far more songs; until then, version numbers stay below 1.0.
-
-```
-song.mp3 ─► Demucs (bass stem, on your GPU) ─► Beat This! + note networks ─► editor ─► .psarc / .feedpak
-```
+AI bass detection, a tab editor with playback, and `.psarc` and `.feedpak` building, in one desktop app. No Python, no Wwise, no Wine, no Windows tools.
 
 ![The FretWright editor: detected bass notes on each string under the song's waveform, with the detection settings on the right](docs/screenshots/editor.png)
 
-## Install
+> **Early access (v0.x).** It works end to end, but today's AI models are small: on songs they haven't seen, they get about three in four bass notes right (73.5% average F1 on our 20-song test set), and they don't detect chords, slides or bends yet. Expect to correct charts in the editor. 1.0 will come with much larger models trained on far more songs.
 
-Download the bundle for your system from the
-[releases page](../../releases) and run `fretwright` (Linux: the `.AppImage`, or
-`fretwright` from the `.tar.gz`; Windows: `fretwright.exe`; macOS: `FretWright.app`).
-On first start it offers to download its AI models (about 420 MB, checked
-against published SHA-256 sums).
+## Features
 
-From source (needs [Rust](https://rustup.rs); on Linux also the ALSA headers,
-e.g. `libasound2-dev` / `alsa-lib`):
-
-```bash
-./run.sh            # Linux / macOS
-run.bat             # Windows
-```
-
-## Using the app
-
-1. **File → New Project** and pick the song. Artist and title are guessed from
-   the file name; album art next to the song is picked up.
-2. **Detection** tab: press *Detect bass line*. *Compare models…* tries several
-   separators and scores them so you can load the best.
-3. Fix things in the editor. Listen with *Full mix + chart synth* to hear the
-   chart against the song, and slow down to 0.5x (pitch stays the same) for fast
-   passages. **Help → Editor shortcuts** lists everything; the essentials:
-   - click/drag notes, drag a note's right edge to change its length, double-click a lane to add one
-   - type digits to set the fret, Up/Down for pitch, Shift+Up/Down to change string
-   - H P M A S toggle hammer-on, pull-off, mute, accent, slide
-   - Delete removes, Ctrl+Z undoes, Space plays
-   - right-click a beat line to make it the start of a bar
-4. **Build** tab: *Build .psarc* or *Build .feedpak*. The package lands in
-   `<project>/out`; copy a `.psarc` to Rocksmith's `dlc` folder, or a `.feedpak`
-   ([an open format](https://github.com/got-feedback/feedpak-spec)) to your feedBack library.
+- **Detects the bass line for you**: separates the bass on your GPU, finds the beats, and charts the notes
+- **Tab editor with playback**: hear the chart against the song, and slow down to half speed without changing pitch
+- **Every technique**: hammer-ons, pull-offs, slides, bends, harmonics, palm mutes and more, marked in the editor
+- **Builds real Rocksmith packages**: `.psarc` for PC and Mac with dynamic difficulty, or [`.feedpak`](https://github.com/got-feedback/feedpak-spec) for feedBack
+- **Command-line tool** to convert a song in one step
+- **Light and dark themes** that follow your system
 
 ![The Build tab: platforms, preview start and output folder](docs/screenshots/build.png)
 
-The screenshots show "Funkorama" by Kevin MacLeod ([incompetech.com](https://incompetech.com)),
-licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), with the
-notes exactly as FretWright detected them.
+## Download
 
-The full guide is in [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+Get the bundle for your system from the [releases page](../../releases):
 
-## Command line
+- **Linux:** `.AppImage` or `.tar.gz`
+- **Windows:** `fretwright.exe` in a `.zip`
+- **macOS:** `FretWright.app`
 
-```bash
-fretwright-cli convert "Artist - Song.mp3"           # song to .psarc in one step
-fretwright-cli convert song.flac --art cover.jpg --tuning "Drop D" --platform pc,mac
-fretwright-cli detect <project>                      # re-run detection on a project
-fretwright-cli build <project>                       # build a project's .psarc
-fretwright-cli build <project> --format feedpak      # or a .feedpak (psarc,feedpak for both)
-fretwright-cli models download [--all]               # fetch the AI models
-fretwright-cli psarc list|extract|pack ...           # archive tools
-fretwright-cli --help
-```
+On first start it offers to download its AI models (about 420 MB, checked against published SHA-256 sums). The [user guide](docs/USER_GUIDE.md) walks you from a song to a finished package.
 
-## feedBack plugin
+## Licence
 
-[`feedback-plugin/`](feedback-plugin/) is a plugin for feedBack (the
-Rocksmith-style practice app, formerly Slopsmith) that runs FretWright's bass
-detection on a song in your feedBack library and adds the result as a new bass
-arrangement. It is not part of the release downloads: copy the folder into
-feedBack's plugins folder and point it at `fretwright-cli` (see its
-[README](feedback-plugin/README.md)). The plugin is AGPL-3.0, like feedBack; the
-rest of this repository is GPL-3.0-or-later.
+Free and open source under the [GNU GPL v3 or later](LICENSE). Parts are ports of Rocksmith2014.NET, librosa, SciPy and Beat This!; all credits are in [LICENSES/](LICENSES/README.md). Want to build it yourself? See [BUILDING.md](BUILDING.md).
 
-## What's inside
-
-| Stage | How |
-|-------|-----|
-| Bass separation | Meta's Demucs v4 (fine-tuned, standard or 6-stem) via [demucs-rs](https://github.com/nikhilunni/demucs-rs) on any Vulkan, Metal or DX12 GPU (or the CPU); or a plain low-pass filter |
-| Beats and bars | [Beat This!](https://github.com/CPJKU/beat_this) (ISMIR 2024) on [rten](https://github.com/robertknight/rten), or a classic tracker |
-| Notes | two small neural networks trained on official charts (note starts, pitch), fused with spectral-flux onsets; harmonic and pYIN pitch remain as alternatives; a string model picks strings by sound, then a string/fret optimiser |
-| Charting | phrases, sections and dynamic difficulty, ported from [Rocksmith2014.NET](https://github.com/iminashi/Rocksmith2014.NET) |
-| Audio | Wwise 2013 Vorbis `.wem` via [rabbit-smith/wem](https://github.com/rabbit-smith/wem), so Wwise is not needed |
-| Packaging | SNG, manifests, sound banks and encrypted PSARC, written from scratch in Rust; `.feedpak` (Ogg Vorbis audio through libvorbis/aoTuV) |
-
-Parts of FretWright are Rust ports of these projects, each checked against
-the original (PyTorch, librosa, Rocksmith2014.NET); the credits are in
-[LICENSES/](LICENSES/README.md).
-
-## Developing
-
-```
-crates/fw-app       the desktop app (egui)
-crates/fw-cli       the fretwright-cli command line tool
-crates/fw-detect    signal processing and the note networks: onsets, pitch, beats, notes, fretting
-crates/fw-eval      scores the detector against official charts (bench, score)
-tools/ml            Python training of the networks
-crates/fw-models    neural networks: Beat This!, Demucs, model downloads
-crates/fw-project   project files, chart conversion, build pipeline
-crates/fw-package   manifests, sound banks, album art, packaging
-crates/fw-{psarc,sng,xml,convert,improve,dd,audio}   formats, charting and audio
-crates/xtask         release packaging (cargo xtask package)
-third_party/         vendored wem and demucs-core (see PATCHES.md)
-LICENSES/            licences of the works FretWright is ported from
-feedback-plugin/     the feedBack plugin (Python, not in release bundles)
-```
-
-```bash
-cargo test --workspace --release
-cargo clippy --workspace --all-targets
-cargo xtask package             # release bundle in dist/
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/RELEASING.md](docs/RELEASING.md).
-
-## Licenses
-
-FretWright is free software under the [GNU General Public License v3.0 or later](LICENSE)
-(GPL-3.0-or-later). Parts are ports of Rocksmith2014.NET (MIT), librosa
-(ISC), SciPy (BSD-3-Clause) and Beat This! (MIT); see
-[LICENSES/](LICENSES/README.md). Vendored code keeps its own licence: wem (MIT
-or Apache-2.0), demucs-rs (Apache-2.0). The model weights are Demucs (Meta,
-MIT) and Beat This! (JKU Linz, MIT), see [docs/MODELS.md](docs/MODELS.md).
-Release bundles include `THIRD_PARTY_LICENSES.txt` with every dependency's
-licence.
-
-Rocksmith is a trademark of Ubisoft. FretWright is not affiliated with or endorsed
-by Ubisoft.
+Screenshots show "Funkorama" by Kevin MacLeod ([incompetech.com](https://incompetech.com)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), with the notes exactly as FretWright detected them. Rocksmith is a trademark of Ubisoft. FretWright is not affiliated with or endorsed by Ubisoft.

@@ -186,6 +186,16 @@ fretwright-cli psarc list|extract|pack ...                      # PSARC tools
 fretwright-cli sng info file.sng                                # inspect a chart
 ```
 
+## feedBack plugin
+
+[`feedback-plugin/`](../feedback-plugin/) is a plugin for feedBack (the
+Rocksmith-style practice app, formerly Slopsmith) that runs FretWright's bass
+detection on a song in your feedBack library and adds the result as a new bass
+arrangement. It is not part of the release downloads: copy the folder into
+feedBack's plugins folder and point it at `fretwright-cli` (see its
+[README](../feedback-plugin/README.md)). The plugin is AGPL-3.0, like feedBack; the
+rest of this repository is GPL-3.0-or-later.
+
 ## Troubleshooting
 
 - **"Demucs ran on the CPU"**: no usable GPU was found. Check *Tools → System
