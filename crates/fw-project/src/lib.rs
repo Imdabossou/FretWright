@@ -72,12 +72,18 @@ pub const SECTION_NAMES: &[(&str, &str)] = &[
 
 /// The label of a section name (imported charts can carry names outside the list).
 pub fn section_label(name: &str) -> &str {
-    SECTION_NAMES.iter().find(|s| s.0 == name).map_or(name, |s| s.1)
+    SECTION_NAMES
+        .iter()
+        .find(|s| s.0 == name)
+        .map_or(name, |s| s.1)
 }
 
 /// "Artist - Title [junk].mp3" -> (artist, title)
 pub fn guess_metadata(path: &Path) -> (String, String) {
-    let base = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let base = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let mut clean = String::new();
     let mut depth = 0i32;
     for c in base.chars() {
@@ -97,8 +103,14 @@ pub fn guess_metadata(path: &Path) -> (String, String) {
 
 /// The default project folder for a song: `<song dir>/<song name> (FretWright)`.
 pub fn default_folder(song: &Path) -> PathBuf {
-    let base = song.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let safe: String = base.chars().filter(|c| c.is_alphanumeric() || " -_".contains(*c)).collect();
+    let base = song
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let safe: String = base
+        .chars()
+        .filter(|c| c.is_alphanumeric() || " -_".contains(*c))
+        .collect();
     song.with_file_name(format!("{} (FretWright)", safe.trim()))
 }
 
@@ -215,7 +227,11 @@ impl Note {
     /// The sustain a chart gives the note: short notes are plain hits.
     pub fn chart_sustain(&self) -> f64 {
         let sliding = self.slide_to >= 0 || self.slide_unpitch_to >= 0;
-        if self.duration() >= 0.2 || sliding || self.bend > 0.0 || self.link_next { self.duration() } else { 0.0 }
+        if self.duration() >= 0.2 || sliding || self.bend > 0.0 || self.link_next {
+            self.duration()
+        } else {
+            0.0
+        }
     }
 
     /// Names of the techniques the note carries, in a fixed order.
@@ -279,14 +295,22 @@ fn default_tempo() -> f64 {
 
 impl Default for BeatGrid {
     fn default() -> Self {
-        BeatGrid { beats: Vec::new(), downbeats: Vec::new(), tempo: 120.0 }
+        BeatGrid {
+            beats: Vec::new(),
+            downbeats: Vec::new(),
+            tempo: 120.0,
+        }
     }
 }
 
 impl BeatGrid {
     /// The beat closest to `t`; `t` itself when there are no beats.
     pub fn nearest_beat(&self, t: f64) -> f64 {
-        self.beats.iter().copied().min_by(|a, b| (a - t).abs().total_cmp(&(b - t).abs())).unwrap_or(t)
+        self.beats
+            .iter()
+            .copied()
+            .min_by(|a, b| (a - t).abs().total_cmp(&(b - t).abs()))
+            .unwrap_or(t)
     }
 }
 
@@ -431,7 +455,11 @@ impl Project {
             folder: folder.into(),
             audio_path: audio_path.into(),
             album_art: String::new(),
-            metadata: Metadata { year: 2026, version: "1".into(), ..Default::default() },
+            metadata: Metadata {
+                year: 2026,
+                version: "1".into(),
+                ..Default::default()
+            },
             tuning: [0; 4],
             tuning_pitch: 440.0,
             bass_picked: false,
@@ -448,17 +476,28 @@ impl Project {
 
     /// Starts a section at `time`, or renames the one already there.
     pub fn set_section(&mut self, time: f64, name: &str) {
-        match self.sections.iter_mut().find(|s| (s.time - time).abs() < SECTION_SAME_TIME) {
+        match self
+            .sections
+            .iter_mut()
+            .find(|s| (s.time - time).abs() < SECTION_SAME_TIME)
+        {
             Some(s) => s.name = name.to_string(),
             None => {
                 let at = self.sections.partition_point(|s| s.time < time);
-                self.sections.insert(at, SongSection { name: name.to_string(), time });
+                self.sections.insert(
+                    at,
+                    SongSection {
+                        name: name.to_string(),
+                        time,
+                    },
+                );
             }
         }
     }
 
     pub fn remove_section(&mut self, time: f64) {
-        self.sections.retain(|s| (s.time - time).abs() >= SECTION_SAME_TIME);
+        self.sections
+            .retain(|s| (s.time - time).abs() >= SECTION_SAME_TIME);
     }
 
     /// Moves the sections onto the current beats, after the beat grid was replaced.
@@ -497,14 +536,22 @@ impl Project {
     pub fn ensure_dlc_key(&mut self) -> String {
         if self.identity.dlc_key.is_empty() {
             let part = |s: &str| {
-                let clean: String = s.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
+                let clean: String = s
+                    .chars()
+                    .filter(char::is_ascii_alphanumeric)
+                    .take(8)
+                    .collect();
                 let mut c = clean.chars();
                 match c.next() {
                     Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(),
                     None => String::new(),
                 }
             };
-            let key = format!("Rsb{}{}", part(&self.metadata.artist), part(&self.metadata.title));
+            let key = format!(
+                "Rsb{}{}",
+                part(&self.metadata.artist),
+                part(&self.metadata.title)
+            );
             self.identity.dlc_key = if key.len() >= 5 { key } else { key + "Song" };
         }
         self.identity.dlc_key.clone()
@@ -513,7 +560,11 @@ impl Project {
     /// Loads a project from its folder or its project file.
     pub fn load(path: impl AsRef<Path>) -> Result<Project> {
         let path = path.as_ref();
-        let file = if path.is_dir() { path.join(PROJECT_FILE) } else { path.to_path_buf() };
+        let file = if path.is_dir() {
+            path.join(PROJECT_FILE)
+        } else {
+            path.to_path_buf()
+        };
         let mut p: Project = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
         p.folder = file.parent().map(Path::to_path_buf).unwrap_or_default();
         Ok(p)
@@ -524,7 +575,13 @@ impl Project {
         std::fs::create_dir_all(&self.folder)?;
         let target = self.folder.join(PROJECT_FILE);
         let tmp = target.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(&OnDisk { project: self, format: FORMAT_VERSION })?)?;
+        std::fs::write(
+            &tmp,
+            serde_json::to_string_pretty(&OnDisk {
+                project: self,
+                format: FORMAT_VERSION,
+            })?,
+        )?;
         std::fs::rename(&tmp, &target)?;
         Ok(target)
     }
@@ -541,8 +598,15 @@ mod tests {
         p.set_section(5.0, "verse");
         p.set_section(30.0, "chorus");
         p.set_section(5.0, "intro");
-        let got: Vec<(&str, f64, i32)> = p.numbered_sections().iter().map(|(s, n)| (s.name.as_str(), s.time, *n)).collect();
-        assert_eq!(got, [("intro", 5.0, 1), ("chorus", 20.0, 1), ("chorus", 30.0, 2)]);
+        let got: Vec<(&str, f64, i32)> = p
+            .numbered_sections()
+            .iter()
+            .map(|(s, n)| (s.name.as_str(), s.time, *n))
+            .collect();
+        assert_eq!(
+            got,
+            [("intro", 5.0, 1), ("chorus", 20.0, 1), ("chorus", 30.0, 2)]
+        );
         p.remove_section(20.0);
         assert_eq!(p.sections.len(), 2);
     }
@@ -555,7 +619,11 @@ mod tests {
         p.set_section(3.9, "chorus");
         p.grid.beats = vec![1.0, 2.0, 3.0, 4.0];
         p.snap_sections();
-        let got: Vec<(&str, f64)> = p.sections.iter().map(|s| (s.name.as_str(), s.time)).collect();
+        let got: Vec<(&str, f64)> = p
+            .sections
+            .iter()
+            .map(|s| (s.name.as_str(), s.time))
+            .collect();
         assert_eq!(got, [("verse", 1.0), ("chorus", 4.0)]);
     }
 
@@ -575,6 +643,9 @@ mod tests {
 
     #[test]
     fn default_folder_is_named_after_the_song() {
-        assert_eq!(default_folder(Path::new("/m/Artist - Song!.mp3")), Path::new("/m/Artist - Song (FretWright)"));
+        assert_eq!(
+            default_folder(Path::new("/m/Artist - Song!.mp3")),
+            Path::new("/m/Artist - Song (FretWright)")
+        );
     }
 }

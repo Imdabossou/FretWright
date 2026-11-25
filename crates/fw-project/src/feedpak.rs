@@ -164,7 +164,11 @@ struct Timeline {
 
 /// The tuning pitch as a cent offset from A440.
 fn cent_offset(pitch: f64) -> f64 {
-    if pitch > 0.0 { ((1200.0 * (pitch / 440.0).log2()) * 100.0).round() / 100.0 } else { 0.0 }
+    if pitch > 0.0 {
+        ((1200.0 * (pitch / 440.0).log2()) * 100.0).round() / 100.0
+    } else {
+        0.0
+    }
 }
 
 fn arrangement(p: &Project) -> Arrangement {
@@ -172,7 +176,11 @@ fn arrangement(p: &Project) -> Arrangement {
     notes.sort_by(|a, b| a.start.total_cmp(&b.start).then(a.string.cmp(&b.string)));
     let anchors = crate::arrangement::anchors(&notes)
         .into_iter()
-        .map(|a| PakAnchor { time: f64::from(a.time) / 1000.0, fret: i32::from(a.fret), width: i32::from(a.width) })
+        .map(|a| PakAnchor {
+            time: f64::from(a.time) / 1000.0,
+            fret: i32::from(a.fret),
+            width: i32::from(a.width),
+        })
         .collect();
     Arrangement {
         name: "Bass",
@@ -193,7 +201,12 @@ fn timeline(p: &Project) -> Option<Timeline> {
     if grid.beats.is_empty() && p.sections.is_empty() {
         return None;
     }
-    let mut downbeats: Vec<usize> = grid.downbeats.iter().copied().filter(|&i| i < grid.beats.len()).collect();
+    let mut downbeats: Vec<usize> = grid
+        .downbeats
+        .iter()
+        .copied()
+        .filter(|&i| i < grid.beats.len())
+        .collect();
     downbeats.sort_unstable();
     downbeats.dedup();
 
@@ -209,7 +222,10 @@ fn timeline(p: &Project) -> Option<Timeline> {
             } else {
                 -1
             };
-            Beat { time: round3(t), measure }
+            Beat {
+                time: round3(t),
+                measure,
+            }
         })
         .collect();
 
@@ -225,29 +241,57 @@ fn timeline(p: &Project) -> Option<Timeline> {
         }
         let bpm = ((count as f64 * 60.0 / seconds) * 1000.0).round() / 1000.0;
         if tempos.last().is_none_or(|t| (t.bpm - bpm).abs() > 0.5) {
-            tempos.push(Tempo { time: round3(start), bpm });
+            tempos.push(Tempo {
+                time: round3(start),
+                bpm,
+            });
         }
         if time_signatures.last().is_none_or(|t| t.ts[0] != count) {
-            time_signatures.push(TimeSignature { time: round3(start), ts: [count, 4] });
+            time_signatures.push(TimeSignature {
+                time: round3(start),
+                ts: [count, 4],
+            });
         }
     }
     if let (true, Some(&first), true) = (tempos.is_empty(), grid.beats.first(), grid.tempo > 0.0) {
-        tempos.push(Tempo { time: round3(first), bpm: grid.tempo });
+        tempos.push(Tempo {
+            time: round3(first),
+            bpm: grid.tempo,
+        });
     }
 
     let mut sections = Vec::new();
     if !p.sections.is_empty() {
         for (s, number) in p.numbered_sections() {
-            sections.push(Section { name: s.name.clone(), number, time: round3(s.time) });
+            sections.push(Section {
+                name: s.name.clone(),
+                number,
+                time: round3(s.time),
+            });
         }
     } else if !downbeats.is_empty() {
-        let section = |number, time| Section { name: "section".into(), number, time };
+        let section = |number, time| Section {
+            name: "section".into(),
+            number,
+            time,
+        };
         sections.push(section(1, 0.0));
-        for (k, &i) in downbeats.iter().skip(BARS_PER_SECTION).step_by(BARS_PER_SECTION).enumerate() {
+        for (k, &i) in downbeats
+            .iter()
+            .skip(BARS_PER_SECTION)
+            .step_by(BARS_PER_SECTION)
+            .enumerate()
+        {
             sections.push(section(k as i32 + 2, round3(grid.beats[i])));
         }
     }
-    Some(Timeline { version: 1, tempos, time_signatures, beats, sections })
+    Some(Timeline {
+        version: 1,
+        tempos,
+        time_signatures,
+        beats,
+        sections,
+    })
 }
 
 /// A YAML string. A JSON string is a valid double-quoted YAML scalar, whatever it holds.
@@ -259,8 +303,16 @@ fn manifest(p: &Project, cover: Option<&str>, has_timeline: bool) -> String {
     let md = &p.metadata;
     let tuning = p.tuning.map(|t| t.to_string()).join(", ");
     let mut y = format!("feedpak_version: \"{FEEDPAK_VERSION}\"\n");
-    let title = if md.title.is_empty() { "Untitled" } else { &md.title };
-    let artist = if md.artist.is_empty() { "Unknown" } else { &md.artist };
+    let title = if md.title.is_empty() {
+        "Untitled"
+    } else {
+        &md.title
+    };
+    let artist = if md.artist.is_empty() {
+        "Unknown"
+    } else {
+        &md.artist
+    };
     y += &format!("title: {}\nartist: {}\n", yaml_str(title), yaml_str(artist));
     if !md.album.is_empty() {
         y += &format!("album: {}\n", yaml_str(&md.album));
@@ -298,17 +350,21 @@ fn cover(p: &Project) -> Result<Option<(&'static str, Vec<u8>)>> {
         return Ok(None);
     }
     let bytes = std::fs::read(path)?;
-    let image_error = |e: image::ImageError| Error::Other(format!("album art {}: {e}", path.display()));
-    Ok(Some(match image::guess_format(&bytes).map_err(image_error)? {
-        image::ImageFormat::Jpeg => ("cover.jpg", bytes),
-        image::ImageFormat::Png => ("cover.png", bytes),
-        _ => {
-            let img = image::load_from_memory(&bytes).map_err(image_error)?;
-            let mut png = std::io::Cursor::new(Vec::new());
-            img.write_to(&mut png, image::ImageFormat::Png).map_err(image_error)?;
-            ("cover.png", png.into_inner())
-        }
-    }))
+    let image_error =
+        |e: image::ImageError| Error::Other(format!("album art {}: {e}", path.display()));
+    Ok(Some(
+        match image::guess_format(&bytes).map_err(image_error)? {
+            image::ImageFormat::Jpeg => ("cover.jpg", bytes),
+            image::ImageFormat::Png => ("cover.png", bytes),
+            _ => {
+                let img = image::load_from_memory(&bytes).map_err(image_error)?;
+                let mut png = std::io::Cursor::new(Vec::new());
+                img.write_to(&mut png, image::ImageFormat::Png)
+                    .map_err(image_error)?;
+                ("cover.png", png.into_inner())
+            }
+        },
+    ))
 }
 
 /// The song's decoded audio, read at most once however many steps need it.
@@ -316,18 +372,33 @@ fn song<'a>(cache: &'a mut Option<fw_audio::Audio>, path: &Path) -> Result<&'a f
     if cache.is_none() {
         *cache = Some(fw_audio::decode(path)?.to_rocksmith()?);
     }
-    cache.as_ref().ok_or_else(|| Error::Other("audio was not decoded".into()))
+    cache
+        .as_ref()
+        .ok_or_else(|| Error::Other("audio was not decoded".into()))
 }
 
-fn add<W: Write + Seek>(zip: &mut ZipWriter<W>, name: &str, bytes: &[u8], method: CompressionMethod) -> Result<()> {
+fn add<W: Write + Seek>(
+    zip: &mut ZipWriter<W>,
+    name: &str,
+    bytes: &[u8],
+    method: CompressionMethod,
+) -> Result<()> {
     let zip_error = |e: zip::result::ZipError| Error::Other(format!("writing the package: {e}"));
-    zip.start_file(name, SimpleFileOptions::default().compression_method(method)).map_err(zip_error)?;
+    zip.start_file(
+        name,
+        SimpleFileOptions::default().compression_method(method),
+    )
+    .map_err(zip_error)?;
     zip.write_all(bytes)?;
     Ok(())
 }
 
 /// Builds the project's `.feedpak` into `out_dir` (default `<project>/out`).
-pub fn build_feedpak(p: &mut Project, out_dir: Option<&Path>, progress: BuildProgress) -> Result<PathBuf> {
+pub fn build_feedpak(
+    p: &mut Project,
+    out_dir: Option<&Path>,
+    progress: BuildProgress,
+) -> Result<PathBuf> {
     if p.notes.is_empty() {
         return Err(Error::NoNotes);
     }
@@ -371,14 +442,20 @@ pub fn build_feedpak(p: &mut Project, out_dir: Option<&Path>, progress: BuildPro
     let name = |value: &str, sort: &str, fallback: &str| {
         fw_package::Sortable::new(if value.is_empty() { fallback } else { value }, Some(sort)).sort
     };
-    let version = if md.version.is_empty() { "1" } else { &md.version };
+    let version = if md.version.is_empty() {
+        "1"
+    } else {
+        &md.version
+    };
     let file = format!(
         "{}_{}_v{}.feedpak",
         fw_package::strings::file_name(&name(&md.artist, &md.artist_sort, "Unknown")),
         fw_package::strings::file_name(&name(&md.title, &md.title_sort, "Untitled")),
         version.replace('.', "_"),
     );
-    let out = out_dir.map(Path::to_path_buf).unwrap_or_else(|| p.path("out"));
+    let out = out_dir
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| p.path("out"));
     std::fs::create_dir_all(&out)?;
     let target = out.join(file);
 
@@ -388,16 +465,28 @@ pub fn build_feedpak(p: &mut Project, out_dir: Option<&Path>, progress: BuildPro
     // Audio and images are compressed already.
     let (text, stored) = (CompressionMethod::Deflated, CompressionMethod::Stored);
     add(&mut zip, "manifest.yaml", manifest.as_bytes(), text)?;
-    add(&mut zip, ARRANGEMENT_FILE, &serde_json::to_vec(&arrangement(p))?, text)?;
+    add(
+        &mut zip,
+        ARRANGEMENT_FILE,
+        &serde_json::to_vec(&arrangement(p))?,
+        text,
+    )?;
     if let Some(t) = &timeline {
         add(&mut zip, TIMELINE_FILE, &serde_json::to_vec(t)?, text)?;
     }
     add(&mut zip, STEM_FILE, &std::fs::read(&song_ogg)?, stored)?;
-    add(&mut zip, PREVIEW_FILE, &std::fs::read(&preview_ogg)?, stored)?;
+    add(
+        &mut zip,
+        PREVIEW_FILE,
+        &std::fs::read(&preview_ogg)?,
+        stored,
+    )?;
     if let Some((name, bytes)) = &cover {
         add(&mut zip, name, bytes, stored)?;
     }
-    zip.finish().map_err(|e| Error::Other(format!("writing the package: {e}")))?.flush()?;
+    zip.finish()
+        .map_err(|e| Error::Other(format!("writing the package: {e}")))?
+        .flush()?;
     std::fs::rename(&tmp, &target)?;
     progress("Package ready", 1.0);
     Ok(target)
@@ -411,8 +500,13 @@ mod tests {
 
     fn sine_wav(path: &Path, seconds: u32) {
         let rate = 48_000u32;
-        let samples: Vec<f32> = (0..rate * seconds).map(|i| (i as f32 * 0.02).sin() * 0.3).collect();
-        let audio = fw_audio::Audio { sample_rate: rate, channels: vec![samples.clone(), samples] };
+        let samples: Vec<f32> = (0..rate * seconds)
+            .map(|i| (i as f32 * 0.02).sin() * 0.3)
+            .collect();
+        let audio = fw_audio::Audio {
+            sample_rate: rate,
+            channels: vec![samples.clone(), samples],
+        };
         std::fs::write(path, audio.to_wav()).unwrap();
     }
 
@@ -451,22 +545,42 @@ mod tests {
 
         let mut zip = zip::ZipArchive::new(File::open(&path).unwrap()).unwrap();
         let manifest = String::from_utf8(member(&mut zip, "manifest.yaml")).unwrap();
-        assert!(manifest.contains("title: \"Say \\\"Hi\\\": #1\"\n"), "{manifest}");
+        assert!(
+            manifest.contains("title: \"Say \\\"Hi\\\": #1\"\n"),
+            "{manifest}"
+        );
         assert!(manifest.contains("tuning: [-2, 0, 0, 0]\n"), "{manifest}");
         assert!(manifest.contains("duration: 4\n"), "{manifest}");
-        assert!(!manifest.contains("cover:"), "no album art was set: {manifest}");
+        assert!(
+            !manifest.contains("cover:"),
+            "no album art was set: {manifest}"
+        );
 
-        let chart: serde_json::Value = serde_json::from_slice(&member(&mut zip, ARRANGEMENT_FILE)).unwrap();
+        let chart: serde_json::Value =
+            serde_json::from_slice(&member(&mut zip, ARRANGEMENT_FILE)).unwrap();
         let notes = chart["notes"].as_array().unwrap();
         // in time order, a short note without sustain, bends in semitones
         assert_eq!(notes[0], serde_json::json!({"t": 0.5, "s": 0, "f": 2}));
-        assert_eq!(notes[1], serde_json::json!({"t": 1.0, "s": 1, "f": 0, "sus": 0.5, "bn": 2.0, "ho": true}));
+        assert_eq!(
+            notes[1],
+            serde_json::json!({"t": 1.0, "s": 1, "f": 0, "sus": 0.5, "bn": 2.0, "ho": true})
+        );
 
-        let timeline: serde_json::Value = serde_json::from_slice(&member(&mut zip, TIMELINE_FILE)).unwrap();
-        assert_eq!(timeline["beats"][4], serde_json::json!({"time": 2.0, "measure": 2}));
+        let timeline: serde_json::Value =
+            serde_json::from_slice(&member(&mut zip, TIMELINE_FILE)).unwrap();
+        assert_eq!(
+            timeline["beats"][4],
+            serde_json::json!({"time": 2.0, "measure": 2})
+        );
         assert_eq!(timeline["beats"][1]["measure"], -1);
-        assert_eq!(timeline["tempos"], serde_json::json!([{"time": 0.0, "bpm": 120.0}]));
-        assert_eq!(timeline["time_signatures"], serde_json::json!([{"time": 0.0, "ts": [4, 4]}]));
+        assert_eq!(
+            timeline["tempos"],
+            serde_json::json!([{"time": 0.0, "bpm": 120.0}])
+        );
+        assert_eq!(
+            timeline["time_signatures"],
+            serde_json::json!([{"time": 0.0, "ts": [4, 4]}])
+        );
 
         for audio in [STEM_FILE, PREVIEW_FILE] {
             assert_eq!(&member(&mut zip, audio)[..4], b"OggS", "{audio}");
@@ -482,8 +596,15 @@ mod tests {
         p.album_art = art.to_string_lossy().into_owned();
         let path = build_feedpak(&mut p, None, &|_, _| {}).unwrap();
         let mut zip = zip::ZipArchive::new(File::open(path).unwrap()).unwrap();
-        assert!(String::from_utf8(member(&mut zip, "manifest.yaml")).unwrap().contains("cover: cover.png\n"));
-        assert_eq!(image::guess_format(&member(&mut zip, "cover.png")).unwrap(), image::ImageFormat::Png);
+        assert!(
+            String::from_utf8(member(&mut zip, "manifest.yaml"))
+                .unwrap()
+                .contains("cover: cover.png\n")
+        );
+        assert_eq!(
+            image::guess_format(&member(&mut zip, "cover.png")).unwrap(),
+            image::ImageFormat::Png
+        );
     }
 
     #[test]
@@ -493,7 +614,11 @@ mod tests {
         p.grid = crate::BeatGrid::default();
         let path = build_feedpak(&mut p, None, &|_, _| {}).unwrap();
         let mut zip = zip::ZipArchive::new(File::open(path).unwrap()).unwrap();
-        assert!(!String::from_utf8(member(&mut zip, "manifest.yaml")).unwrap().contains("song_timeline"));
+        assert!(
+            !String::from_utf8(member(&mut zip, "manifest.yaml"))
+                .unwrap()
+                .contains("song_timeline")
+        );
         assert!(zip.by_name(TIMELINE_FILE).is_err());
     }
 
@@ -504,7 +629,10 @@ mod tests {
         p.grid.downbeats.clear();
         let t = serde_json::to_value(timeline(&p).unwrap()).unwrap();
         assert_eq!(t["sections"], serde_json::json!([]));
-        assert_eq!(t["tempos"], serde_json::json!([{"time": 0.0, "bpm": 120.0}]));
+        assert_eq!(
+            t["tempos"],
+            serde_json::json!([{"time": 0.0, "bpm": 120.0}])
+        );
     }
 
     #[test]
@@ -512,7 +640,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut p = project(dir.path());
         let auto = serde_json::to_value(timeline(&p).unwrap()).unwrap();
-        assert_eq!(auto["sections"], serde_json::json!([{"name": "section", "number": 1, "time": 0.0}]));
+        assert_eq!(
+            auto["sections"],
+            serde_json::json!([{"name": "section", "number": 1, "time": 0.0}])
+        );
         p.set_section(0.5, "chorus");
         p.set_section(2.0, "verse");
         p.set_section(3.0, "chorus");
@@ -536,6 +667,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut p = project(dir.path());
         p.notes.clear();
-        assert!(matches!(build_feedpak(&mut p, None, &|_, _| {}), Err(Error::NoNotes)));
+        assert!(matches!(
+            build_feedpak(&mut p, None, &|_, _| {}),
+            Err(Error::NoNotes)
+        ));
     }
 }

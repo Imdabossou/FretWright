@@ -22,8 +22,17 @@ pub(crate) fn fresh(target: &Path, source: &Path) -> bool {
 /// Default preview: a third of the way into the song, on a bar line.
 pub(crate) fn default_preview_start(p: &Project) -> f64 {
     let target = p.duration * 0.33;
-    let bars: Vec<f64> = p.grid.downbeats.iter().filter_map(|&i| p.grid.beats.get(i).copied()).collect();
-    let t = bars.iter().copied().min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs())).unwrap_or(target);
+    let bars: Vec<f64> = p
+        .grid
+        .downbeats
+        .iter()
+        .filter_map(|&i| p.grid.beats.get(i).copied())
+        .collect();
+    let t = bars
+        .iter()
+        .copied()
+        .min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs()))
+        .unwrap_or(target);
     t.min(p.duration - 30.0).max(0.0)
 }
 
@@ -41,7 +50,11 @@ pub fn package_spec(p: &mut Project, progress: BuildProgress) -> Result<PackageS
     let rev = fw_audio::REVISION;
     let song_wem = work.join(format!("song.r{rev}.wem"));
     let need_audio = !fresh(&song_wem, &audio_path) || p.volume.is_none() || p.duration <= 0.0;
-    let audio = if need_audio { Some(fw_audio::decode(&audio_path)?.to_rocksmith()?) } else { None };
+    let audio = if need_audio {
+        Some(fw_audio::decode(&audio_path)?.to_rocksmith()?)
+    } else {
+        None
+    };
     if let Some(a) = &audio {
         p.duration = a.duration();
         if p.volume.is_none() {
@@ -81,10 +94,32 @@ pub fn package_spec(p: &mut Project, progress: BuildProgress) -> Result<PackageS
     let volume = p.volume.unwrap_or(-7.0) as f32;
     Ok(PackageSpec {
         dlc_key: key,
-        version: if md.version.is_empty() { "1".into() } else { md.version.clone() },
-        author: if md.author.is_empty() { "FretWright".into() } else { md.author.clone() },
-        artist: Sortable::new(if md.artist.is_empty() { "Unknown" } else { &md.artist }, Some(&md.artist_sort)),
-        title: Sortable::new(if md.title.is_empty() { "Untitled" } else { &md.title }, Some(&md.title_sort)),
+        version: if md.version.is_empty() {
+            "1".into()
+        } else {
+            md.version.clone()
+        },
+        author: if md.author.is_empty() {
+            "FretWright".into()
+        } else {
+            md.author.clone()
+        },
+        artist: Sortable::new(
+            if md.artist.is_empty() {
+                "Unknown"
+            } else {
+                &md.artist
+            },
+            Some(&md.artist_sort),
+        ),
+        title: Sortable::new(
+            if md.title.is_empty() {
+                "Untitled"
+            } else {
+                &md.title
+            },
+            Some(&md.title_sort),
+        ),
         album: Sortable::new(&md.album, Some(&md.album_sort)),
         year: md.year,
         album_art: art.is_file().then_some(art),
@@ -105,7 +140,11 @@ pub fn package_spec(p: &mut Project, progress: BuildProgress) -> Result<PackageS
             sections: p
                 .numbered_sections()
                 .into_iter()
-                .map(|(s, number)| fw_xml::Section { name: s.name.clone(), number: number as i16, time: (s.time * 1000.0).round() as i32 })
+                .map(|(s, number)| fw_xml::Section {
+                    name: s.name.clone(),
+                    number: number as i16,
+                    time: (s.time * 1000.0).round() as i32,
+                })
                 .collect(),
         }],
         builder_name: format!("FretWright {}", env!("CARGO_PKG_VERSION")),
@@ -114,13 +153,23 @@ pub fn package_spec(p: &mut Project, progress: BuildProgress) -> Result<PackageS
 }
 
 /// Builds the project's package(s) into `out_dir` (default `<project>/out`).
-pub fn build(p: &mut Project, out_dir: Option<&Path>, platforms: &[Platform], progress: BuildProgress) -> Result<Vec<PathBuf>> {
+pub fn build(
+    p: &mut Project,
+    out_dir: Option<&Path>,
+    platforms: &[Platform],
+    progress: BuildProgress,
+) -> Result<Vec<PathBuf>> {
     let spec = package_spec(p, progress)?;
-    let out = out_dir.map(Path::to_path_buf).unwrap_or_else(|| p.path("out"));
+    let out = out_dir
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| p.path("out"));
     std::fs::create_dir_all(&out)?;
     let mut paths = Vec::new();
     for &platform in platforms {
-        progress("Building package (phrases, difficulty levels, SNG, PSARC)", 0.85);
+        progress(
+            "Building package (phrases, difficulty levels, SNG, PSARC)",
+            0.85,
+        );
         paths.push(fw_package::build(&spec, platform, &out)?);
     }
     progress("Package ready", 1.0);
