@@ -5,7 +5,7 @@
 1. Set the version in the workspace `Cargo.toml` (`[workspace.package] version`)
    and run `cargo build` so `Cargo.lock` follows.
 2. Commit, merge into `main`, then tag `main` and push:
-   `git tag -a v0.3.0 -m "FretWright v0.3.0" && git push origin v0.3.0`.
+   `git tag -a v0.3.1 -m "FretWright v0.3.1" && git push origin v0.3.1`.
    The build fails if the tag doesn't match the `Cargo.toml` version.
 3. The `build` workflow tests everything, builds the Linux (`.tar.gz` and
    `.AppImage`), Windows (`.zip`) and macOS (`.app` in a `.zip`) bundles, and
